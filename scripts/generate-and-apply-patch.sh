@@ -18,17 +18,18 @@ PATCHES_REPO="$REPO_ROOT"
 NEXTJS_REPO="$REPO_ROOT/.nextjs-fork"
 PACKAGE_DIR="$PATCHES_REPO/package"
 
-# Clone Next.js fork into workspace
-if [ -d "$NEXTJS_REPO" ]; then
-  echo "🧹 Removing previous Next.js clone..."
-  rm -rf "$NEXTJS_REPO"
-fi
+ensure_commit_present() {
+  local repo="$1"
+  local remote="$2"
+  local sha="$3"
 
-echo "🌐 Cloning Next.js fork into workspace..."
-git clone --depth 10 git@github.com:runderworld/next.js.git "$NEXTJS_REPO"
-
-echo "🌐 Adding upstream remote..."
-git -C "$NEXTJS_REPO" remote add upstream https://github.com/vercel/next.js.git
+  if ! git -C "$repo" cat-file -e "$sha" 2>/dev/null; then
+    echo "⚠️ Commit $sha not found locally. Fetching from $remote..."
+    git -C "$repo" fetch "$remote" "$sha"
+  else
+    echo "✅ Commit $sha is present in $remote."
+  fi
+}
 
 # Patch metadata
 PATCH_NAME="pr-71759++.patch"
@@ -64,6 +65,23 @@ elif [[ "${1:-}" == "--dry-run" ]]; then
   echo "🧪 Dry-run mode enabled: no commit or publish will occur."
 fi
 
+# Clone Next.js fork into workspace
+if [ -d "$NEXTJS_REPO" ]; then
+  echo "🧹 Removing previous Next.js clone..."
+  rm -rf "$NEXTJS_REPO"
+fi
+
+echo "🌐 Cloning Next.js fork into workspace..."
+git clone --depth 10 git@github.com:runderworld/next.js.git "$NEXTJS_REPO"
+
+echo "🔍 Verifying cherry-picked commits in fork..."
+for commit in "${PR_COMMITS[@]}"; do
+  ensure_commit_present "$NEXTJS_REPO" origin "$commit"
+done
+
+echo "🌐 Adding upstream remote..."
+git -C "$NEXTJS_REPO" remote add upstream https://github.com/vercel/next.js.git
+
 # Prompt for upstream tag
 read -rp "Enter upstream Next.js tag (e.g. v15.5.2): " TAG
 BRANCH_NAME="patch-${TAG}"
@@ -96,7 +114,12 @@ fi
 # Step 1: Create consolidated patch from commits
 echo "🔄 Fetching upstream Next.js..."
 pushd "$NEXTJS_REPO" > /dev/null
-git fetch upstream --tags
+git fetch upstream --tags --depth=10
+
+echo "🔍 Verifying cherry-picked commits in upstream..."
+for commit in "${PR_COMMITS[@]}"; do
+  ensure_commit_present "$NEXTJS_REPO" upstream "$commit"
+done
 
 echo "📍 Creating patch-stack branch from upstream/canary"
 git checkout upstream/canary
