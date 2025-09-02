@@ -1,6 +1,16 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# Required tools
+REQUIRED_TOOLS=(jq pnpm git diff grep awk)
+for tool in "${REQUIRED_TOOLS[@]}"; do
+  if ! command -v "$tool" >/dev/null 2>&1; then
+    echo "❌ Required tool '$tool' is not installed or not in PATH."
+    echo "Please install it before running this script."
+    exit 1
+  fi
+done
+
 # Resolve paths
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
@@ -12,6 +22,7 @@ PACKAGE_DIR="$PATCHES_REPO/package"
 PATCH_NAME="pr-71759++.patch"
 PATCH_FILE="$PATCHES_REPO/patches/$PATCH_NAME"
 MANIFEST_PATH="$PATCHES_REPO/patches/manifest.json"
+FINGERPRINT_TOKEN="runderworld.node.options.patch"
 
 # Commits to include in pr-71759++ patch
 PR_COMMITS=(
@@ -46,7 +57,7 @@ read -rp "Enter upstream Next.js tag (e.g. v15.5.2): " TAG
 BRANCH_NAME="patch-${TAG}"
 DIST_PATCH_NAME="dist-${TAG}-pr71759++.patch"
 DIST_PATCH_PATH="$PATCHES_REPO/patches/$DIST_PATCH_NAME"
-TAG_NAME="patch-${TAG}"
+TAG_NAME="${TAG}" # ← updated: tag is now just "v15.5.2"
 TIMESTAMP="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
 
 # Step 0: Verify both repos are clean
@@ -62,6 +73,13 @@ check_clean() {
 echo "🔍 Checking repo cleanliness..."
 check_clean "$NEXTJS_REPO" "Next.js"
 check_clean "$PATCHES_REPO" "Utility"
+
+# Step 0.5: Refuse to overwrite existing patch branch
+if git -C "$PATCHES_REPO" rev-parse --verify --quiet "$BRANCH_NAME"; then
+  echo "🛑 Branch $BRANCH_NAME already exists. Refusing to overwrite."
+  echo "This patch version has already been published. No variants allowed."
+  exit 1
+fi
 
 # Step 1: Create consolidated patch from commits
 echo "🔄 Fetching upstream Next.js..."
@@ -104,7 +122,12 @@ echo "🔨 Building Next.js..."
 pnpm build
 
 # Step 3: Generate dist patch
-DIST_PATH="packages/next/dist"
+DIST_PATH="$(find "$NEXTJS_REPO/packages/next" -type d -name dist | head -n 1)"
+if [[ -z "$DIST_PATH" || ! -d "$DIST_PATH" ]]; then
+  echo "❌ Could not locate dist output directory after build."
+  exit 1
+fi
+
 ORIGINAL_DIR="$NEXTJS_REPO/.dist-original"
 rm -rf "$ORIGINAL_DIR"
 cp -r "$DIST_PATH" "$ORIGINAL_DIR"
@@ -118,8 +141,8 @@ if [ -f "$DIST_PATCH_PATH" ]; then
   TMP_PATCH="$(mktemp)"
   diff -ruN "$ORIGINAL_DIR" "$DIST_PATH" > "$TMP_PATCH"
 
-  OLD_HASH="$(sha256sum "$DIST_PATCH_PATH" | awk '{print $1}')"
-  NEW_HASH="$(sha256sum "$TMP_PATCH" | awk '{print $1}')"
+  OLD_HASH="$(awk '{print $1}' <<< "$(shasum -a 256 "$DIST_PATCH_PATH")")"
+  NEW_HASH="$(awk '{print $1}' <<< "$(shasum -a 256 "$TMP_PATCH")")"
 
   if [[ "$OLD_HASH" == "$NEW_HASH" ]]; then
     echo "✅ Patch content is identical. Skipping overwrite."
@@ -154,19 +177,59 @@ jq --arg tag "$TAG" \
    '. + {($patch): {upstream: $tag, sourcePatch: $source, commits: $commits, created: $time}}' \
    "$MANIFEST_PATH" > "$MANIFEST_PATH.tmp" && mv "$MANIFEST_PATH.tmp" "$MANIFEST_PATH"
 
-# Step 5: Commit dist patch and manifest to utility repo
+# Step 5: Commit dist patch, manifest, and source patch to utility repo
 if [ "$DRY_RUN" = false ]; then
   echo "📦 Committing dist patch to branch: $BRANCH_NAME"
   pushd "$PATCHES_REPO" > /dev/null
-  git branch -D "$BRANCH_NAME" 2>/dev/null || true
   git checkout -b "$BRANCH_NAME"
-  git add "patches/$DIST_PATCH_NAME" "patches/manifest.json"
+  git add "patches/$PATCH_NAME" "patches/$DIST_PATCH_NAME" "patches/manifest.json"
   git commit -m "Add dist patch for Next.js $TAG with pr-71759++"
   git tag -f "$TAG_NAME"
+  git push origin "$BRANCH_NAME"
+  git push origin "$TAG_NAME"
   popd > /dev/null
+
+  echo "🚀 Pushing patch branch and tag to origin..."
+  git push origin "$BRANCH_NAME"
+  git push origin "$TAG_NAME"
+  if [ "$DRY_RUN" = false ]; then
+    echo "🚀 Pushing patch branch and tag to origin..."
+    git push origin "$BRANCH_NAME"
+    git push origin "$TAG_NAME"
+  else
+    echo "🧪 Dry-run: skipping push to origin."
+  fi
 else
   echo "🧪 Dry-run: skipping commit and tag creation."
 fi
+
+# Step 5.5: Verify patch fingerprint before publishing
+verify_patch_fingerprint() {
+  echo "🔐 Verifying patch fingerprint in dist output..."
+
+  if ! grep -rFq "$FINGERPRINT_TOKEN" "$DIST_PATH"; then
+    echo "❌ Fingerprint token not found in dist output."
+    echo "Expected token: $FINGERPRINT_TOKEN"
+
+    echo "🧹 Cleaning up partial commit and tag in utility repo..."
+    git -C "$PATCHES_REPO" tag -d "$TAG_NAME" 2>/dev/null || true
+    git -C "$PATCHES_REPO" checkout main > /dev/null 2>&1 || true
+    git -C "$PATCHES_REPO" branch -D "$BRANCH_NAME" 2>/dev/null || true
+    git -C "$PATCHES_REPO" reset --hard HEAD~1
+
+    echo "🧼 Cleaning up patch branch and artifacts in Next.js repo..."
+    git -C "$NEXTJS_REPO" checkout upstream/canary > /dev/null 2>&1 || true
+    git -C "$NEXTJS_REPO" branch -D "$BRANCH_NAME" 2>/dev/null || true
+    git -C "$NEXTJS_REPO" reset --hard
+    git -C "$NEXTJS_REPO" clean -fd
+
+    echo "🛑 Aborted due to missing fingerprint. Workspace fully restored."
+    exit 1
+  fi
+
+  echo "✅ Fingerprint token found in dist output."
+}
+verify_patch_fingerprint
 
 # Step 6: Prepare and publish NPM package
 if [ "$DRY_RUN" = false ]; then
@@ -192,20 +255,34 @@ EOF
 
   echo "🚀 Publishing to NPM..."
   pushd "$PACKAGE_DIR" > /dev/null
-  npm publish --access public
+  if npm publish --access public; then
+    echo "✅ Patch published as @runderworld/next.js-patches@${TAG#v}"
+    echo "🏷️ Git tag created: $TAG_NAME"
+  else
+    echo "🛑 NPM publish failed. Cleaning up workspace..."
+
+    # Remove tag and branch from utility repo
+    git -C "$PATCHES_REPO" tag -d "$TAG_NAME" 2>/dev/null || true
+    git -C "$PATCHES_REPO" checkout main > /dev/null 2>&1 || true
+    git -C "$PATCHES_REPO" branch -D "$BRANCH_NAME" 2>/dev/null || true
+    git -C "$PATCHES_REPO" reset --hard HEAD~1
+
+    # Clean up Next.js repo
+    git -C "$NEXTJS_REPO" checkout upstream/canary > /dev/null 2>&1 || true
+    git -C "$NEXTJS_REPO" branch -D "$BRANCH_NAME" 2>/dev/null || true
+    git -C "$NEXTJS_REPO" reset --hard
+    git -C "$NEXTJS_REPO" clean -fd
+
+    echo "🧹 Removed tag, branch, and last commit from both repos."
+    popd > /dev/null
+    rm -rf "$PACKAGE_DIR"
+    exit 1
+  fi
   popd > /dev/null
 
   echo "🧹 Cleaning up package directory..."
   rm -rf "$PACKAGE_DIR"
-
-  echo "✅ Patch published as @runderworld/next.js-patches@${TAG#v}"
-  echo "🏷️ Git tag created: $TAG_NAME"
 else
   echo "🧪 Dry-run: skipping NPM publish and cleanup."
 fi
 
-# Step 7: Final cleanup
-echo "🧹 Resetting Next.js fork to pristine state..."
-pushd "$NEXTJS_REPO" > /dev/null
-git reset --hard
-git clean -fd

@@ -1,44 +1,110 @@
-# next.js-patches
+# Next.js Patch Automation
 
-This repository contains reproducible patch artifacts and automation scripts for overlaying custom changes onto upstream Next.js releases. It supports deterministic builds, dist-level patching, and version-specific overlays without maintaining a fork.
+This utility automates the process of generating, verifying, and publishing dist-level patches for Next.js. It overlays selected PRs and local fixes onto an upstream tag, builds the output, generates reproducible patch artifacts, and publishes them as NPM packages for enterprise consumption.
 
-## 📁 Structure
+## 🔧 Script: `generate-and-apply-patch.sh`
 
-next.js-patches/
-├── patches/
-│   ├── pr-71759++.patch                  # Consolidated source patch (3 commits)
-│   ├── dist-v15.5.2-pr71759++.patch      # Diff of built dist output for v15.5.2
-│   ├── manifest.json                     # Metadata for all generated patches
-├── scripts/
-│   └── generate-and-apply-patch.sh       # Full automation pipeline
-├── README.md                             # This file
+### Features
 
-> Note: The `package/` directory is created temporarily during NPM publishing and automatically removed after publish. It is not versioned.
+- Cherry-picks selected commits onto `upstream/canary`
+- Generates a consolidated `.patch` file
+- Applies patch to a clean branch from upstream tag
+- Builds Next.js using `pnpm`
+- Diffs original and patched `dist/` output
+- Generates reproducible dist patch
+- Updates `manifest.json` with patch metadata
+- Verifies fingerprint token in built output before publishing
+- Publishes patch as an NPM package
+- Pushes patch branch and tag to `origin`
+- Cleans up Git state if fingerprint is missing or publish fails
+- Validates required tools before execution
 
-## 🔧 Patch Workflow
+### Usage
 
-1. **Create consolidated patch**  
-   Cherry-picks multiple commits (e.g. PR #71759 + local fixes) into a temporary branch and generates `pr-71759++.patch`.
+```bash
+./scripts/generate-and-apply-patch.sh [--dry-run]
+```
 
-2. **Apply patch to upstream release**  
-   Rebases `runderworld/next.js` on a specified upstream tag (e.g. `v15.5.2`) and applies the patch.
+### Options
 
-3. **Build and diff dist output**  
-   Builds the patched Next.js source and generates a diff against the original `packages/next/dist`.
+- `--dry-run` — Run without committing, pushing, or publishing
+- `--help` — Show usage instructions
 
-4. **Commit dist patch**  
-   Commits the resulting `dist-<version>-pr71759++.patch` to this repo on a branch named `patch-<version>` and tags it as `patch-<version>`.
+### Inputs
 
-5. **Publish to NPM**  
-   The patch is published as `@runderworld/next.js-patches@<version>` where `<version>` matches the exact upstream Next.js version (e.g. `15.5.2`).
+- Prompts for upstream tag (e.g. `v15.5.2`)
+- Uses hardcoded commit list for `pr-71759++` patch
 
-6. **Cleanup**  
-   The temporary `package/` directory used for publishing is automatically removed after publish.
+### Output
+
+- `patches/pr-71759++.patch` — Source patch
+- `patches/dist-<tag>-pr71759++.patch` — Dist-level patch
+- `patches/manifest.json` — Metadata registry
+- `@runderworld/next.js-patches@<version>` — Published NPM package
+
+## 🧼 Workspace Hygiene
+
+Before patching begins, the script verifies:
+
+- Clean Git state in both repos
+- Patch branch does not already exist
+- Manifest includes expected patch entry
+
+## 🔐 Fingerprint Verification
+
+Before publishing, the script checks:
+
+- That the literal token `runderworld.node.options.patch` exists in the built `dist/` output
+
+If the token is missing, the script aborts and restores both repos to a clean state.
+
+## 🚀 Patch Branch and Tag Publishing
+
+After generating and committing the patch artifacts, the script:
+
+- Pushes the patch branch (`patch-vX.Y.Z`) to `origin`
+- Pushes the corresponding Git tag (`vX.Y.Z`) to `origin`
+
+This ensures patch branches are discoverable, versioned, and CI-compatible.
+
+## 🧹 Failure Recovery
+
+If fingerprint verification or NPM publish fails:
+
+- The patch branch and tag are deleted from the utility repo
+- The last commit is rolled back
+- The Next.js repo is reset to `upstream/canary`
+- Untracked files (e.g. `.dist-original/`) are removed
+
+## 📦 NPM Package Structure
+
+```json
+{
+  "name": "@runderworld/next.js-patches",
+  "version": "<tag>",
+  "main": "dist.patch",
+  "files": ["dist.patch"]
+}
+```
+
+## 🛠 Required Tools
+
+The following tools must be available in your `PATH`:
+
+- `jq`
+- `pnpm`
+- `git`
+- `diff`
+- `grep`
+- `awk`
+
+The script will fail early if any are missing.
 
 ## 🧪 Dry-Run Mode
 
-You can run the script in dry-run mode to preview patch generation without committing or publishing:
+Use `--dry-run` to simulate the full flow without committing, pushing, or publishing. Useful for validation and inspection.
 
-```bash
-./scripts/generate-and-apply-patch.sh --dry-run
+---
+
+All patch artifacts are version-locked, fingerprinted, and reproducible. No surprises.
 
