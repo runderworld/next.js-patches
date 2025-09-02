@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
+set -x
 
 # Required tools
 REQUIRED_TOOLS=(jq pnpm git diff grep awk)
@@ -104,7 +105,7 @@ git format-patch "$BASE_COMMIT" --stdout > "$PATCH_FILE"
 echo "🧹 Cleaning up patch-stack"
 git checkout upstream/canary
 git branch -D patch-stack
-popd > /dev/null
+popd > /dev/null || true
 
 # Step 2: Rebase fork on upstream tag and apply patch
 echo "📍 Rebasing fork on upstream tag: $TAG"
@@ -152,12 +153,16 @@ if [ -f "$DIST_PATCH_PATH" ]; then
   echo "⚠️ Patch already exists: $DIST_PATCH_PATH"
 
   TMP_PATCH="$(mktemp)"
-  diff -ruN "$ORIGINAL_DIR" "$DIST_PATH" > "$TMP_PATCH"
+  echo "🔍 Regenerating patch for comparison..."
+  echo "  ORIGINAL_DIR: $ORIGINAL_DIR"
+  echo "  DIST_PATH:    $DIST_PATH"
+  echo "  TMP_PATCH:    $TMP_PATCH"
+
+  diff -ruN "$ORIGINAL_DIR" "$DIST_PATH" > "$TMP_PATCH" || true
+
   if [ ! -s "$TMP_PATCH" ]; then
-    echo "🛑 Diff output is empty. TMP_PATCH contains no changes."
-    echo "ORIGINAL_DIR: $ORIGINAL_DIR"
-    echo "DIST_PATH: $DIST_PATH"
-    rm "$TMP_PATCH"
+    echo "🛑 TMP_PATCH is empty. Diff succeeded but no output was captured."
+    rm -f "$TMP_PATCH"
     exit 1
   fi
 
@@ -181,15 +186,32 @@ if [ -f "$DIST_PATCH_PATH" ]; then
   fi
 else
   echo "🧩 Generating new dist patch..."
-  diff -ruN "$ORIGINAL_DIR" "$DIST_PATH" > "$DIST_PATCH_PATH"
+
+  echo "🔍 Running diff between:"
+  echo "  ORIGINAL_DIR: $ORIGINAL_DIR"
+  echo "  DIST_PATH:    $DIST_PATH"
+  echo "  PATCH OUTPUT: $DIST_PATCH_PATH"
+
+  mkdir -p "$(dirname "$DIST_PATCH_PATH")"
+
+  diff -ruN "$ORIGINAL_DIR" "$DIST_PATH" > "$DIST_PATCH_PATH" || true 
+
   if [ ! -s "$DIST_PATCH_PATH" ]; then
-    echo "🛑 Dist patch is empty. No changes detected between original and rebuilt output."
-    echo "ORIGINAL_DIR: $ORIGINAL_DIR"
-    echo "DIST_PATH: $DIST_PATH"
+    echo "🛑 Patch file is empty. Diff succeeded but no output was captured."
     exit 1
   fi
+
+  echo "✅ Dist patch generated: $DIST_PATCH_PATH"
+
+  if [ ! -s "$DIST_PATCH_PATH" ]; then
+    echo "🛑 Patch file is empty. Diff succeeded but no output was captured."
+    exit 1
+  fi
+
+  echo "✅ Dist patch generated: $DIST_PATCH_PATH"
 fi
-popd > /dev/null
+echo "✅ Reached end of patch generation block"
+popd > /dev/null || true
 
 # Step 5: Update manifest
 echo "🗂️ Updating manifest: $MANIFEST_PATH"
@@ -201,7 +223,10 @@ jq --arg tag "$TAG" \
    --arg time "$TIMESTAMP" \
    --argjson commits "$(printf '%s\n' "${PR_COMMITS[@]}" | jq -R . | jq -s .)" \
    '. + {($patch): {upstream: $tag, sourcePatch: $source, commits: $commits, created: $time}}' \
-   "$MANIFEST_PATH" > "$MANIFEST_PATH.tmp" && mv "$MANIFEST_PATH.tmp" "$MANIFEST_PATH"
+   "$MANIFEST_PATH" > "$MANIFEST_PATH.tmp"
+
+echo "✅ Manifest update succeeded"
+mv "$MANIFEST_PATH.tmp" "$MANIFEST_PATH"
 
 # Step 5.5: Commit patch artifacts to utility repo
 if [ "$DRY_RUN" = false ]; then
@@ -213,7 +238,7 @@ if [ "$DRY_RUN" = false ]; then
   git tag -f "$TAG_NAME"
   git push origin "$BRANCH_NAME"
   git push origin "$TAG_NAME"
-  popd > /dev/null
+  popd > /dev/null || true
 else
   echo "🧪 Dry-run: skipping commit and tag creation."
 fi
@@ -258,7 +283,7 @@ EOF
     git -C "$PATCHES_REPO" reset --hard HEAD~1
   fi
 
-  popd > /dev/null
+  popd > /dev/null || true
 
   # Always clean up Next.js workspace
   echo "🧹 Cleaning up Next.js workspace..."
