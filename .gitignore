@@ -4,3 +4,5 @@ dist/
 .dist-original/
 *.tgz
 /package/
+.nextjs-fork/
+

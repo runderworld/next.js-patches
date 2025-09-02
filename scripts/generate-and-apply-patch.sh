@@ -15,8 +15,20 @@ done
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 PATCHES_REPO="$REPO_ROOT"
-NEXTJS_REPO="$REPO_ROOT/../next.js"
+NEXTJS_REPO="$REPO_ROOT/.nextjs-fork"
 PACKAGE_DIR="$PATCHES_REPO/package"
+
+# Clone Next.js fork into workspace
+if [ -d "$NEXTJS_REPO" ]; then
+  echo "🧹 Removing previous Next.js clone..."
+  rm -rf "$NEXTJS_REPO"
+fi
+
+echo "🌐 Cloning Next.js fork into workspace..."
+git clone --depth 10 git@github.com:runderworld/next.js.git "$NEXTJS_REPO"
+
+echo "🌐 Adding upstream remote..."
+git -C "$NEXTJS_REPO" remote add upstream https://github.com/vercel/next.js.git
 
 # Patch metadata
 PATCH_NAME="pr-71759++.patch"
@@ -27,13 +39,13 @@ FINGERPRINT_TOKEN="runderworld.node.options.patch"
 # Commits to include in pr-71759++ patch
 PR_COMMITS=(
   # Original PR commit from Martin Madsen (factbird)
-  ed127bb230748d7471b74c16b0532aaf42a0f808
+  fda4d5b1516490cea76650a80c8ecaac58f30c74
 
   # Follow-up commit from same contributor
-  ea98aea563173245e989ca2af84ad274c979f581
+  020f58dbef9bfe5e57b62e56870194fe62e02983
 
   # Local fix authored by you (runderworld)
-  3017607daab6161721dcdeba286374c7f7725c19
+  f80235400f160c4d1278ed3e336083c5c5d66a2a
 )
 
 # Parse flags
@@ -301,5 +313,13 @@ EOF
   fi
 else
   echo "🧪 Dry-run: skipping NPM publish and workspace cleanup."
+fi
+
+# Final cleanup
+if [ "$DRY_RUN" = false ]; then
+  echo "🧹 Removing cloned Next.js workspace..."
+  rm -rf "$NEXTJS_REPO"
+else
+  echo "🧪 Dry-run: preserving cloned workspace for inspection."
 fi
 
