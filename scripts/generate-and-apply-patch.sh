@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+rewrite_patch_headers() {
+  sed -e 's/^--- original\//--- a\//' -e 's/^+++ dist\//+++ b\//'
+}
+
 # Required tools
 REQUIRED_TOOLS=(jq pnpm git diff grep awk)
 for tool in "${REQUIRED_TOOLS[@]}"; do
@@ -130,8 +134,8 @@ rm -rf "$ORIGINAL_DIR"
 cp -r "$DIST_PATH" "$ORIGINAL_DIR"
 
 # Step 3.5: Apply patch and rebuild
-echo "🧵 Applying patch: $PATCH_NAME"
-git apply "$PATCH_FILE"
+echo "🧵 Applying patch with git am: $PATCH_NAME"
+git am "$PATCH_FILE"
 
 echo "🔨 Rebuilding Next.js after patch..."
 pnpm build
@@ -157,7 +161,8 @@ if [ -f "$DIST_PATCH_PATH" ]; then
   echo "  DIST_PATH:    $DIST_PATH"
   echo "  TMP_PATCH:    $TMP_PATCH"
 
-  diff -ruN "$ORIGINAL_DIR" "$DIST_PATH" > "$TMP_PATCH" || true
+  diff -ruN "$ORIGINAL_DIR" "$DIST_PATH" > "$TMP_PATCH" \
+    | rewrite_patch_headers > "$TMP_PATCH" || true
 
   if [ ! -s "$TMP_PATCH" ]; then
     echo "🛑 TMP_PATCH is empty. Diff succeeded but no output was captured."
@@ -193,7 +198,8 @@ else
 
   mkdir -p "$(dirname "$DIST_PATCH_PATH")"
 
-  diff -ruN "$ORIGINAL_DIR" "$DIST_PATH" > "$DIST_PATCH_PATH" || true 
+  diff -ruN "$ORIGINAL_DIR" "$DIST_PATH" \
+    | rewrite_patch_headers > "$DIST_PATCH_PATH" || true
 
   if [ ! -s "$DIST_PATCH_PATH" ]; then
     echo "🛑 Patch file is empty. Diff succeeded but no output was captured."
