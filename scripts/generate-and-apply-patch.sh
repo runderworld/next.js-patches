@@ -159,8 +159,11 @@ rm -rf "$ORIGINAL_DIR"
 cp -r "$DIST_PATH" "$ORIGINAL_DIR"
 
 # Step 3.5: Apply patch and rebuild
-echo "🧵 Applying patch: $PATCH_NAME"
-git apply "$PATCH_FILE"
+echo "🧵 Resetting workspace before applying patch with git am..."
+git reset --hard
+git clean -fd
+echo "🧵 Applying patch with git am: $PATCH_NAME"
+git am "$PATCH_FILE"
 
 echo "🔨 Rebuilding Next.js after patch..."
 pnpm build
