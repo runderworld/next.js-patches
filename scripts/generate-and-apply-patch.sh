@@ -18,19 +18,6 @@ PATCHES_REPO="$REPO_ROOT"
 NEXTJS_REPO="$REPO_ROOT/.nextjs-fork"
 PACKAGE_DIR="$PATCHES_REPO/package"
 
-ensure_commit_present() {
-  local repo="$1"
-  local remote="$2"
-  local sha="$3"
-
-  if ! git -C "$repo" cat-file -e "$sha" 2>/dev/null; then
-    echo "⚠️ Commit $sha not found locally. Fetching from $remote..."
-    git -C "$repo" fetch "$remote" "$sha"
-  else
-    echo "✅ Commit $sha is present in $remote."
-  fi
-}
-
 # Patch metadata
 PATCH_NAME="pr-71759++.patch"
 PATCH_FILE="$PATCHES_REPO/patches/$PATCH_NAME"
@@ -74,9 +61,19 @@ fi
 echo "🌐 Cloning Next.js fork into workspace..."
 git clone --depth 10 git@github.com:runderworld/next.js.git "$NEXTJS_REPO"
 
-echo "🔍 Verifying cherry-picked commits in fork..."
+# Ensures all three PR commits are available locally without triggering a massive packfile download
+echo "🌐 Fetching branch on origin that contains all PR commits (patch-pr71759++)..."
+git -C "$NEXTJS_REPO" fetch origin patch-pr71759++
+
+echo "🔍 Validating presence of expected PR commits in fetched branch..."
 for commit in "${PR_COMMITS[@]}"; do
-  ensure_commit_present "$NEXTJS_REPO" origin "$commit"
+  if git -C "$NEXTJS_REPO" cat-file -e "$commit" 2>/dev/null; then
+    MESSAGE=$(git -C "$NEXTJS_REPO" log --format='%h %s' -n 1 "$commit")
+    echo "✅ Found: $MESSAGE"
+  else
+    echo "🛑 Missing commit: $commit"
+    exit 1
+  fi
 done
 
 echo "🌐 Adding upstream remote..."
@@ -115,11 +112,6 @@ fi
 echo "🔄 Fetching upstream Next.js..."
 pushd "$NEXTJS_REPO" > /dev/null
 git fetch upstream --tags --depth=10
-
-echo "🔍 Verifying cherry-picked commits in upstream..."
-for commit in "${PR_COMMITS[@]}"; do
-  ensure_commit_present "$NEXTJS_REPO" upstream "$commit"
-done
 
 echo "📍 Creating patch-stack branch from upstream/canary"
 git checkout upstream/canary
