@@ -1,6 +1,12 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+rewrite_patch_headers() {
+  sed -E \
+    -e 's|^--- .*\.dist-original/|--- a/|' \
+    -e 's|^\+\+\+ .*packages/next/dist/|+++ b/|'
+}
+
 # Required tools
 REQUIRED_TOOLS=(jq pnpm git diff grep awk)
 for tool in "${REQUIRED_TOOLS[@]}"; do
@@ -194,9 +200,8 @@ if [ -f "$DIST_PATCH_PATH" ]; then
 
   pushd "$NEXTJS_REPO/packages/next" > /dev/null
 
-  diff -ruN original dist \
-    | sed -E 's|^--- original/|--- a/|; s|^+++ dist/|+++ b/|' \
-    > "$TMP_PATCH"
+  diff -ruN "$ORIGINAL_DIR" "$DIST_PATH" \
+    | rewrite_patch_headers > "$TMP_PATH"
 
   popd > /dev/null
 
@@ -239,9 +244,8 @@ else
 
   pushd "$NEXTJS_REPO/packages/next" > /dev/null
 
-  diff -ruN original dist \
-    | sed -E 's|^--- original/|--- a/|; s|^+++ dist/|+++ b/|' \
-    > "$DIST_PATCH_PATH"
+  diff -ruN "$ORIGINAL_DIR" "$DIST_PATH" \
+    | rewrite_patch_headers > "$DIST_PATCH_PATH"
 
   popd > /dev/null
 
