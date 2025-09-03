@@ -1,10 +1,50 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-rewrite_patch_headers() {
-  sed -E \
+generate_dist_patch() {
+  local original_dir="$1"
+  local dist_dir="$2"
+  local output_path="$3"
+
+  local tmp_diff
+  local tmp_patch
+  tmp_diff="$(mktemp)"
+  tmp_patch="$(mktemp)"
+
+  echo "📄 Diffing $original_dir → $dist_dir"
+  if ! diff -ruN "$original_dir" "$dist_dir" > "$tmp_diff"; then
+    local diff_exit=$?
+    if [ "$diff_exit" -eq 1 ]; then
+      echo "✅ diff found changes"
+    elif [ "$diff_exit" -eq 2 ]; then
+      echo "🛑 diff failed with fatal error"
+      exit 1
+    else
+      echo "⚠️ Unexpected diff exit code: $diff_exit"
+      exit 1
+    fi
+  else
+    echo "⚠️ diff found no changes"
+  fi
+
+  echo "✂️ Rewriting patch headers..."
+  if ! sed -E \
     -e 's|^--- .*\.dist-original/|--- a/|' \
-    -e 's|^\+\+\+ .*packages/next/dist/|+++ b/|'
+    -e 's|^\+\+\+ .*packages/next/dist/|+++ b/|' \
+    "$tmp_diff" > "$tmp_patch"; then
+    echo "🛑 sed failed during header rewrite"
+    exit 1
+  fi
+
+  if [ ! -s "$tmp_patch" ]; then
+    echo "🛑 Patch file is empty after rewrite"
+    echo "🧪 Inspect raw diff at: $tmp_diff"
+    exit 1
+  fi
+
+  mv "$tmp_patch" "$output_path"
+  rm -f "$tmp_diff"
+  echo "✅ Patch generated: $output_path ($(wc -l < "$output_path") lines)"
 }
 
 # Required tools
@@ -200,10 +240,7 @@ if [ -f "$DIST_PATCH_PATH" ]; then
   cp -r "$ORIGINAL_DIR" "$NEXTJS_REPO/packages/next/original"
 
   pushd "$NEXTJS_REPO/packages/next" > /dev/null
-
-  diff -ruN "$ORIGINAL_DIR" "$DIST_PATH" \
-    | rewrite_patch_headers > "$TMP_PATH"
-
+  generate_dist_patch "$ORIGINAL_DIR" "$DIST_PATH" "$TMP_PATH"
   popd > /dev/null
 
   if [ ! -s "$TMP_PATCH" ]; then
@@ -244,10 +281,7 @@ else
   cp -r "$ORIGINAL_DIR" "$NEXTJS_REPO/packages/next/original"
 
   pushd "$NEXTJS_REPO/packages/next" > /dev/null
-
-  diff -ruN "$ORIGINAL_DIR" "$DIST_PATH" \
-    | rewrite_patch_headers > "$DIST_PATCH_PATH"
-
+  generate_dist_patch "$ORIGINAL_DIR" "$DIST_PATH" "$DIST_PATCH_PATH"
   popd > /dev/null
 
   if [ ! -s "$DIST_PATCH_PATH" ]; then
