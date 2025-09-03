@@ -53,7 +53,9 @@ elif [[ "${1:-}" == "--dry-run" ]]; then
 fi
 
 # Prompt for upstream tag
-read -rp "Enter upstream Next.js tag (e.g. v15.5.2): " TAG
+DEFAULT_TAG="v15.5.1-canary.17"
+read -p "🔖 Enter Next.js tag to patch [default: $DEFAULT_TAG]: " TAG
+TAG="${TAG:-$DEFAULT_TAG}"
 BRANCH_NAME="patch-${TAG}"
 DIST_PATCH_NAME="dist-${TAG}-pr71759++.patch"
 DIST_PATCH_PATH="$PATCHES_REPO/patches/$DIST_PATCH_NAME"
