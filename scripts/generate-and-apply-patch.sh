@@ -30,7 +30,9 @@ PATCH_FILE="$PATCHES_REPO/patches/$PATCH_NAME"
 MANIFEST_PATH="$PATCHES_REPO/patches/manifest.json"
 FINGERPRINT_TOKEN="runderworld.node.options.patch"
 
-# Commits to include in pr-71759++ patch
+# Commits to include in pr-71759++ patch.
+# NOTE: These commits should remain AT THE TOP of
+# branch 'patch-pr71759++' in order for this to work.
 PR_COMMITS=(
   # Original PR commit from Martin Madsen (factbird)
   fda4d5b1516490cea76650a80c8ecaac58f30c74
@@ -117,24 +119,23 @@ if git -C "$PATCHES_REPO" rev-parse --verify --quiet "$BRANCH_NAME"; then
 fi
 
 # Step 1: Create consolidated patch from commits
-echo "🔄 Fetching upstream Next.js..."
+echo "🔄 Fetching upstream Next.js tag and canary branch..."
 pushd "$NEXTJS_REPO" > /dev/null
-git fetch upstream --tags --depth=10
+git fetch upstream "refs/tags/$TAG:refs/tags/$TAG" "refs/heads/canary:refs/remotes/upstream/canary" --depth=1
 
 echo "📍 Creating patch-stack branch from upstream/canary"
-git checkout upstream/canary
 git branch -D patch-stack 2>/dev/null || true
-git checkout -b patch-stack
+git checkout -b patch-stack "$TAG"
 
 echo "🧵 Cherry-picking commits into patch-stack..."
 for commit in "${PR_COMMITS[@]}"; do
   git cherry-pick "$commit"
 done
 
-echo "📦 Generating consolidated patch: $PATCH_NAME"
+NUM_COMMITS="${#PR_COMMITS[@]}"
+echo "📦 Generating consolidated patch from $NUM_COMMITS commits: $PATCH_NAME"
 mkdir -p "$PATCHES_REPO/patches"
-BASE_COMMIT="$(git rev-parse upstream/canary)"
-git format-patch "$BASE_COMMIT" --stdout > "$PATCH_FILE"
+git format-patch -"$NUM_COMMITS" --stdout > "$PATCH_FILE"
 
 echo "🧹 Cleaning up patch-stack"
 git checkout upstream/canary
