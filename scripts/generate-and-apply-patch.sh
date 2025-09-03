@@ -180,7 +180,7 @@ git format-patch -"$NUM_COMMITS" --stdout > "$PATCH_FILE"
 echo "🧹 Cleaning up patch-stack"
 git checkout upstream/canary
 git branch -D patch-stack
-popd > /dev/null || true
+popd > /dev/null
 
 # Step 2: Rebase fork on upstream tag and apply patch
 echo "📍 Rebasing fork on upstream tag: $TAG"
@@ -299,7 +299,7 @@ else
   echo "✅ Dist patch generated: $DIST_PATCH_PATH"
 fi
 echo "✅ Reached end of patch generation block"
-popd > /dev/null || true
+popd > /dev/null
 
 # Step 5: Update manifest
 echo "🗂️ Updating manifest: $MANIFEST_PATH"
@@ -326,7 +326,7 @@ if [ "$DRY_RUN" = false ]; then
   git tag -f "$TAG_NAME"
   git push origin "$BRANCH_NAME"
   git push origin "$TAG_NAME"
-  popd > /dev/null || true
+  popd > /dev/null
 else
   echo "🧪 Dry-run: skipping commit and tag creation."
 fi
@@ -373,7 +373,7 @@ EOF
     git -C "$PATCHES_REPO" reset --hard HEAD~1
   fi
 
-  popd > /dev/null || true
+  popd > /dev/null
 
   # Always clean up Next.js workspace
   echo "🧹 Cleaning up Next.js workspace..."
