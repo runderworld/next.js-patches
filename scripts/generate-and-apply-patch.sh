@@ -327,7 +327,9 @@ EOF
 
     # Remove tag and branch from utility repo
     git -C "$PATCHES_REPO" tag -d "$TAG_NAME" 2>/dev/null || true
-    git -C "$PATCHES_REPO" checkout main > /dev/null 2>&1 || true
+    CURRENT_BRANCH="$(git -C "$PATCHES_REPO" rev-parse --abbrev-ref HEAD)"
+    echo "🔁 Restoring utility repo to branch: $CURRENT_BRANCH"
+    git -C "$PATCHES_REPO" checkout "$CURRENT_BRANCH"
     git -C "$PATCHES_REPO" branch -D "$BRANCH_NAME" 2>/dev/null || true
     git -C "$PATCHES_REPO" reset --hard HEAD~1
   fi
