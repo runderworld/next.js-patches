@@ -52,6 +52,14 @@ elif [[ "${1:-}" == "--dry-run" ]]; then
   echo "🧪 Dry-run mode enabled: no commit or publish will occur."
 fi
 
+# Prompt for upstream tag
+read -rp "Enter upstream Next.js tag (e.g. v15.5.2): " TAG
+BRANCH_NAME="patch-${TAG}"
+DIST_PATCH_NAME="dist-${TAG}-pr71759++.patch"
+DIST_PATCH_PATH="$PATCHES_REPO/patches/$DIST_PATCH_NAME"
+TAG_NAME="${TAG}" # ← updated: tag is now just "v15.5.2"
+TIMESTAMP="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
+
 # Clone Next.js fork into workspace
 if [ -d "$NEXTJS_REPO" ]; then
   echo "🧹 Removing previous Next.js clone..."
@@ -78,14 +86,6 @@ done
 
 echo "🌐 Adding upstream remote..."
 git -C "$NEXTJS_REPO" remote add upstream https://github.com/vercel/next.js.git
-
-# Prompt for upstream tag
-read -rp "Enter upstream Next.js tag (e.g. v15.5.2): " TAG
-BRANCH_NAME="patch-${TAG}"
-DIST_PATCH_NAME="dist-${TAG}-pr71759++.patch"
-DIST_PATCH_PATH="$PATCHES_REPO/patches/$DIST_PATCH_NAME"
-TAG_NAME="${TAG}" # ← updated: tag is now just "v15.5.2"
-TIMESTAMP="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
 
 # Step 0: Verify both repos are clean
 check_clean() {
