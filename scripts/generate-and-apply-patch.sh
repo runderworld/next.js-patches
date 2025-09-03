@@ -184,7 +184,16 @@ if [ -f "$DIST_PATCH_PATH" ]; then
   echo "  DIST_PATH:    $DIST_PATH"
   echo "  TMP_PATCH:    $TMP_PATCH"
 
-  diff -ruN "$ORIGINAL_DIR" "$DIST_PATH" > "$TMP_PATCH" || true
+  # Copy original dist to a subdir inside packages/next for relative diffing
+  cp -r "$ORIGINAL_DIR" "$NEXTJS_REPO/packages/next/original"
+
+  pushd "$NEXTJS_REPO/packages/next" > /dev/null
+
+  diff -ruN original dist \
+    | sed -E 's|^--- original/|--- a/|; s|^+++ dist/|+++ b/|' \
+    > "$TMP_PATCH"
+
+  popd > /dev/null
 
   if [ ! -s "$TMP_PATCH" ]; then
     echo "🛑 TMP_PATCH is empty. Diff succeeded but no output was captured."
@@ -220,7 +229,16 @@ else
 
   mkdir -p "$(dirname "$DIST_PATCH_PATH")"
 
-  diff -ruN "$ORIGINAL_DIR" "$DIST_PATH" > "$DIST_PATCH_PATH" || true 
+  # Copy original dist to a subdir inside packages/next for relative diffing
+  cp -r "$ORIGINAL_DIR" "$NEXTJS_REPO/packages/next/original"
+
+  pushd "$NEXTJS_REPO/packages/next" > /dev/null
+
+  diff -ruN original dist \
+    | sed -E 's|^--- original/|--- a/|; s|^+++ dist/|+++ b/|' \
+    > "$DIST_PATCH_PATH"
+
+  popd > /dev/null
 
   if [ ! -s "$DIST_PATCH_PATH" ]; then
     echo "🛑 Patch file is empty. Diff succeeded but no output was captured."
