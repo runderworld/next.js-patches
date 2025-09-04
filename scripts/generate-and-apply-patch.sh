@@ -8,19 +8,26 @@ generate_dist_patch() {
 
   echo
   echo "🔍 [DEBUG] generate_dist_patch:"
-  echo "    orig   = $orig"
-  echo "    patched= $patched"
-  echo "    output = $out"
+  echo "    orig    = $orig"
+  echo "    patched = $patched"
+  echo "    output  = $out"
   echo
 
-  echo "    ls -R \$orig | head"
-  ls -R "$orig" | head -n20
-  echo
-  echo "    ls -R \$patched | head"
-  ls -R "$patched" | head -n20
+  # temporarily disable pipefail so ls|head doesn’t kill us
+  set +o pipefail
+
+  echo "    ls -R \$orig | head -n20"
+  ls -R "$orig" | head -n20 || true
   echo
 
-  echo "🧩 Running: diff -urN \\"
+  echo "    ls -R \$patched | head -n20"
+  ls -R "$patched" | head -n20 || true
+  echo
+
+  # re-enable pipefail
+  set -o pipefail
+
+  echo "🧩 Running diff -urN \\"
   echo "         --label a/packages/next/dist \\"
   echo "         --label b/packages/next/dist \\"
   echo "         $orig $patched > $out"
@@ -49,7 +56,6 @@ generate_dist_patch() {
     exit 1
   fi
 }
-
 
 # Required tools
 REQUIRED_TOOLS=(jq pnpm git diff grep awk)
