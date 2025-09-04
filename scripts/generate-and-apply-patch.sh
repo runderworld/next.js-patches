@@ -248,12 +248,12 @@ pnpm exec turbo run build --filter next --force --no-cache
 popd > /dev/null
 
 # ← PAUSE so you can manually inspect `.nextjs-fork/packages/next/dist`
-echo
-echo "🛑 Pausing here.  Inspect your dist dirs:"
-echo "   ORIGINAL → $ORIGINAL_DIR"
-echo "   LIVE     → $DIST_PATH"
-echo
-read -n1 -r -p "Press any key once you’ve poked around…"
+#echo
+#echo "🛑 Pausing here.  Inspect your dist dirs:"
+#echo "   ORIGINAL → $ORIGINAL_DIR"
+#echo "   LIVE     → $DIST_PATH"
+#echo
+#read -n1 -r -p "Press any key once you’ve poked around…"
 
 # ← now snapshot the rebuilt `dist` into `.dist-patched`
 echo "📸 Capturing patched snapshot…"
@@ -292,8 +292,8 @@ if [ -f "$DIST_PATCH_PATH" ]; then
   generate_dist_patch "$ORIGINAL_DIR" "$PATCHED_DIR" "$TMP_PATCH"
   popd > /dev/null
 
-  echo "🛑 Debug mode: exiting before publish & cleanup"
-  exit 0
+#  echo "🛑 Debug mode: exiting before publish & cleanup"
+#  exit 0
 
   if [ ! -s "$TMP_PATCH" ]; then
     echo "🛑 TMP_PATCH is empty. Diff succeeded but no output was captured."
@@ -334,8 +334,8 @@ else
   generate_dist_patch "$ORIGINAL_DIR" "$PATCHED_DIR" "$DIST_PATCH_PATH"
   popd > /dev/null
 
-  echo "🛑 Debug mode: exiting before publish & cleanup"
-  exit 0
+#  echo "🛑 Debug mode: exiting before publish & cleanup"
+#  exit 0
 
   if [ ! -s "$DIST_PATCH_PATH" ]; then
     echo "🛑 Patch file is empty. Diff succeeded but no output was captured."
@@ -429,15 +429,15 @@ EOF
   popd > /dev/null
 
   # Always clean up Next.js workspace
-#  echo "🧹 Cleaning up Next.js workspace..."
-#  git -C "$NEXTJS_REPO" checkout upstream/canary > /dev/null 2>&1 || true
-#  git -C "$NEXTJS_REPO" branch -D "$BRANCH_NAME" 2>/dev/null || true
-#  git -C "$NEXTJS_REPO" reset --hard
-#  git -C "$NEXTJS_REPO" clean -fd
+  echo "🧹 Cleaning up Next.js workspace..."
+  git -C "$NEXTJS_REPO" checkout upstream/canary > /dev/null 2>&1 || true
+  git -C "$NEXTJS_REPO" branch -D "$BRANCH_NAME" 2>/dev/null || true
+  git -C "$NEXTJS_REPO" reset --hard
+  git -C "$NEXTJS_REPO" clean -fd
 
   # Always clean up package directory
-#  echo "🧹 Cleaning up package directory..."
-#  rm -rf "$PACKAGE_DIR"
+  echo "🧹 Cleaning up package directory..."
+  rm -rf "$PACKAGE_DIR"
 
   if [ "$PUBLISH_SUCCESS" = false ]; then
     echo "🛑 Aborted due to NPM publish failure."
@@ -449,8 +449,8 @@ fi
 
 # Final cleanup
 if [ "$DRY_RUN" = false ]; then
-#  echo "🧹 Removing cloned Next.js workspace..."
-#  rm -rf "$NEXTJS_REPO"
+  echo "🧹 Removing cloned Next.js workspace..."
+  rm -rf "$NEXTJS_REPO"
 else
   echo "🧪 Dry-run: preserving cloned workspace for inspection."
 fi
