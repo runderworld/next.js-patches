@@ -2,13 +2,22 @@
 set -euo pipefail
 
 generate_dist_patch() {
-  local orig_dist="$1"      # e.g. .nextjs-fork/.dist-original/packages/next/dist
-  local new_dist="$2"       # e.g. .nextjs-fork/.dist-patched/packages/next/dist
-  local out="$3"            # e.g. patches/dist-v15.5.1-canary.17.patch
+  local orig_root="$1"      # e.g. .nextjs-fork/.dist-original
+  local patched_root="$2"   # e.g. .nextjs-fork/.dist-patched
+  local out="$3"            # e.g. patches/dist-… .patch
+  local orig_dist
+  local new_dist
   local diff_exit=0
 
-  echo "📄 Generating dist patch with diff --label…"
+  # Derive the dist subdirs automatically
+  orig_dist="$orig_root/packages/next/dist"
+  new_dist="$patched_root/packages/next/dist"
 
+  echo "📄 Generating dist patch between"
+  echo "   $orig_dist → $new_dist"
+  echo
+
+  # One-shot GNU diff with labels, capture exit=1 (changes) without dying
   diff -urN --strip-trailing-cr \
     --label "a/packages/next/dist" \
     --label "b/packages/next/dist" \
@@ -16,14 +25,14 @@ generate_dist_patch() {
 
   case "$diff_exit" in
     0)
-      echo "⚠️ No changes detected; removing $out"
+      echo "⚠️ No changes detected; removing empty patch."
       rm -f "$out"
       ;;
     1)
       echo "✅ Patch generated: $out ($(wc -l <"$out") lines)"
       ;;
     *)
-      echo "🛑 diff failed with exit code $diff_exit"
+      echo "🛑 diff failed with exit code $diff_exit" >&2
       exit "$diff_exit"
       ;;
   esac
