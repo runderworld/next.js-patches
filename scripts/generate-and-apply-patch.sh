@@ -3,6 +3,9 @@ set -euo pipefail
 
 debug_dist_diff() {
   local original_dir="$1"
+
+  # ← added: ensure debug-log dir exists so redirection never fails
+  mkdir -p "$(dirname "$3")" || echo "⚠️ Could not create debug-log directory"
   local dist_dir="$2"
   local debug_log="$3"
 
@@ -238,8 +241,11 @@ git checkout -b "$BRANCH_NAME" "$TAG"
 echo "📦 Installing dependencies..."
 pnpm install --frozen-lockfile
 
-echo "🔨 Building original Next.js from tag $TAG..."
-pnpm build
+echo "🔨 Building original Next.js (turbo run build --filter next)..."
+# direct Turbo CLI rebuild of only the next package
+pushd "$NEXTJS_REPO" > /dev/null
+pnpm exec turbo run build --filter next
+popd > /dev/null
 
 # Step 3: Snapshot original dist output
 DIST_PATH="$NEXTJS_REPO/packages/next/dist"
@@ -256,8 +262,15 @@ cp -r "$DIST_PATH" "$ORIGINAL_DIR"
 echo "🧵 Applying patch with git am: $PATCH_NAME"
 git am "$PATCH_FILE"
 
-echo "🔨 Rebuilding Next.js after patch..."
-pnpm build
+# ← delete stale dist + turbo cache, then one forced rebuild
+echo "🧹 Cleaning dist + Turbo cache..."
+rm -rf "$DIST_PATH" "$NEXTJS_REPO/.turbo"
+
+echo "🔨 Rebuilding patched Next.js (turbo run build --filter next --force)…"
+# direct Turbo CLI: rebuild only next, force cache bust
+pushd "$NEXTJS_REPO" > /dev/null
+pnpm exec turbo run build --filter next --force
+popd > /dev/null
 
 # Step 3.6: Verify fingerprint before proceeding
 echo "🔐 Verifying fingerprint in dist output..."
@@ -284,9 +297,6 @@ if [ -f "$DIST_PATCH_PATH" ]; then
   echo "  ORIGINAL_DIR: $ORIGINAL_DIR"
   echo "  DIST_PATH:    $DIST_PATH"
   echo "  TMP_PATCH:    $TMP_PATCH"
-
-  # Copy original snapshot into workspace for relative diffing
-  cp -r "$ORIGINAL_DIR" "$NEXTJS_REPO/packages/next/original"
 
   pushd "$NEXTJS_REPO/packages/next" > /dev/null
   # ← modified to diff against post-patch snapshot
@@ -321,9 +331,6 @@ else
   echo "🧩 Generating new dist patch..."
 
   echo "🔍 Running diff between:"
-  echo "  ORIGINAL_DIR: $ORIGINAL_DIR"
-  echo "  DIST_PATH:    $DIST_PATH"
-  echo "  PATCH OUTPUT: $DIST_PATCH_PATH"
 
   mkdir -p "$(dirname "$DIST_PATCH_PATH")"
 
