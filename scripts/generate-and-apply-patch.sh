@@ -44,78 +44,24 @@ debug_dist_diff() {
   } >> "$debug_log" 2>&1 || echo "🛑 Failed to write to debug log: $debug_log"
 }
 
-generate_dist_patchORIG() {
-  local original_dir="$1"
-  local dist_dir="$2"
-  local output_path="$3"
-
-  local tmp_diff
-  local tmp_patch
-  tmp_diff="$(mktemp)"
-  tmp_patch="$(mktemp)"
-
-  echo "📄 Diffing $original_dir → $dist_dir"
-  (diff -ruN "$original_dir" "$dist_dir" > "$tmp_diff") || true
-  diff_exit=$?
-
-  if [ "$diff_exit" -eq 0 ]; then
-    echo "⚠️ No differences found — running debug inspection"
-    debug_dist_diff "$original_dir" "$dist_dir" "$PATCHES_REPO/debug-diff-$TAG.log"
-    rm -f "$tmp_diff"
-    return 0
-  elif [ "$diff_exit" -eq 1 ]; then
-    echo "✅ diff found changes"
-    debug_dist_diff "$original_dir" "$dist_dir" "$PATCHES_REPO/debug-diff-$TAG.log"
-  elif [ "$diff_exit" -eq 2 ]; then
-    echo "🛑 diff failed with fatal error"
-    debug_dist_diff "$original_dir" "$dist_dir" "$PATCHES_REPO/debug-diff-$TAG.log"
-    exit 1
-  else
-    echo "⚠️ Unexpected diff exit code: $diff_exit"
-    debug_dist_diff "$original_dir" "$dist_dir" "$PATCHES_REPO/debug-diff-$TAG.log"
-    exit 1
-  fi
-
-  echo "✂️ Rewriting patch headers..."
-  if ! sed -E \
-    -e 's|^--- .*\.dist-original/|--- a/|' \
-    -e 's|^\+\+\+ .*packages/next/dist/|+++ b/|' \
-    "$tmp_diff" > "$tmp_patch"; then
-    echo "🛑 sed failed during header rewrite"
-    exit 1
-  fi
-
-  if [ ! -s "$tmp_patch" ]; then
-    echo "🛑 Patch file is empty after rewrite"
-    echo "🧪 Inspect raw diff at: $tmp_diff"
-    exit 1
-  fi
-
-  mv "$tmp_patch" "$output_path"
-  #debug_dist_diff "$ORIGINAL_DIR" "$DIST_PATH" "$PATCHES_REPO/debug-diff-$TAG.log"
-  rm -f "$tmp_diff"
-  echo "✅ Patch generated: $output_path ($(wc -l < "$output_path") lines)"
-}
 generate_dist_patch() {
-  local orig="$1" patched="$2" out="$3"
-  local tmp_diff
-  tmp_diff="$(mktemp)"
+  local orig="$1"
+  local patched="$2"
+  local out="$3"
 
-  echo "📄 Diffing $orig → $patched"
-  # 1) run diff and capture its exit code properly
+  echo "🧩 Generating patch with GNU diff --label..."
   diff -urN \
     --label "a/packages/next/dist" \
     --label "b/packages/next/dist" \
-    "$orig" "$patched" > "$tmp_diff"
+    "$orig" "$patched" > "$out" || true
   diff_exit=$?
 
-  # 2) branch on diff_exit
   if [ "$diff_exit" -eq 0 ]; then
     echo "⚠️ No differences found — skipping patch generation"
-    rm -f "$tmp_diff"
+    rm -f "$out"
     return 0
   elif [ "$diff_exit" -eq 1 ]; then
-    echo "✅ Differences found — generating patch"
+    echo "✅ Differences found — patch at $out (lines: $(wc -l <"$out"))"
     debug_dist_diff "$orig" "$patched" \
       "$PATCHES_REPO/debug-diff-$TAG.log"
   else
@@ -124,12 +70,7 @@ generate_dist_patch() {
       "$PATCHES_REPO/debug-diff-$TAG.log"
     exit 1
   fi
-
-  # 3) move the tmp diff into place (already labeled)
-  mv "$tmp_diff" "$out"
-  echo "✅ Patch generated: $out ($(wc -l <"$out") lines)"
 }
-
 
 # Required tools
 REQUIRED_TOOLS=(jq pnpm git diff grep awk)
