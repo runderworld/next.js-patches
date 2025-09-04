@@ -4,14 +4,22 @@ set -euo pipefail
 generate_dist_patch() {
   local orig_root="$1"      # e.g. .nextjs-fork/.dist-original
   local patched_root="$2"   # e.g. .nextjs-fork/.dist-patched
-  local out="$3"            # e.g. patches/dist-… .patch
-  local orig_dist
-  local new_dist
+  local out="$3"            # e.g. patches/dist-v15.5.1.patch
+  local orig_dist new_dist
   local diff_exit=0
 
-  # Derive the dist subdirs automatically
-  orig_dist="$orig_root/packages/next/dist"
-  new_dist="$patched_root/packages/next/dist"
+  # 1) Figure out where the real "dist" lives
+  if [ -d "$orig_root/packages/next/dist" ]; then
+    orig_dist="$orig_root/packages/next/dist"
+  else
+    orig_dist="$orig_root"
+  fi
+
+  if [ -d "$patched_root/packages/next/dist" ]; then
+    new_dist="$patched_root/packages/next/dist"
+  else
+    new_dist="$patched_root"
+  fi
 
   echo "📄 Generating dist patch between"
   echo "   $orig_dist → $new_dist"
@@ -23,15 +31,18 @@ generate_dist_patch() {
     --label "b/packages/next/dist" \
     "$orig_dist" "$new_dist" > "$out" || diff_exit=$?
 
+  # 4) Handle exit codes
   case "$diff_exit" in
     0)
       echo "⚠️ No changes detected; removing empty patch."
       rm -f "$out"
+      return 0
       ;;
     1)
       echo "✅ Patch generated: $out ($(wc -l <"$out") lines)"
       ;;
     *)
+      # real error
       echo "🛑 diff failed with exit code $diff_exit" >&2
       exit "$diff_exit"
       ;;
