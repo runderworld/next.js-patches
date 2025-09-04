@@ -4,30 +4,33 @@ set -euo pipefail
 generate_dist_patch() {
   local orig="$1"
   local patched="$2"
-  local output="$3"
-  local diff_exit=0
+  local out="$3"
+  local tmp_diff
+  local diff_exit
 
-  echo "📄 Generating dist patch…"
-  diff -urN --strip-trailing-cr \
-    "$orig" "$patched" | \
+  # 1) Run raw diff into a temp file (no debug echo here)
+  tmp_diff=$(mktemp)
+  diff -urN --strip-trailing-cr "$orig" "$patched" > "$tmp_diff"
+  diff_exit=$?
+
+  # 2) Handle exit codes
+  if   [ "$diff_exit" -eq 0 ]; then
+    rm -f "$tmp_diff"
+    return 0
+  elif [ "$diff_exit" -ne 1 ]; then
+    rm -f "$tmp_diff"
+    exit "$diff_exit"
+  fi
+
+  # 3) Rewrite only the hunk headers to the a/... and b/... paths
   sed -E \
     -e "s|^--- $orig/(.+)|--- a/packages/next/dist/\1|g" \
     -e "s|^\+\+\+ $patched/(.+)|+++ b/packages/next/dist/\1|g" \
-    > "$output" || diff_exit=$?
+    "$tmp_diff" > "$out"
 
-  case $diff_exit in
-    0)
-      echo "⚠️ No differences found; removing empty patch."
-      rm -f "$output"
-      ;;
-    1)
-      echo "✅ Patch generated: $output ($(wc -l <"$output") lines)"
-      ;;
-    *)
-      echo "🛑 diff failed with exit code $diff_exit"
-      exit $diff_exit
-      ;;
-  esac
+  # 4) Done
+  echo "✅ Patch generated: $out ($(wc -l <"$out") lines)" >&2
+  rm -f "$tmp_diff"
 }
 
 # Required tools
