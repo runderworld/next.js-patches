@@ -97,16 +97,39 @@ generate_dist_patchORIG() {
   echo "✅ Patch generated: $output_path ($(wc -l < "$output_path") lines)"
 }
 generate_dist_patch() {
-  local orig=$1 patched=$2 out=$3
+  local orig="$1" patched="$2" out="$3"
+  local tmp_diff
+  tmp_diff="$(mktemp)"
 
-  git diff -U0 --no-index "$orig" "$patched" \
-    | sed \
-        -e "s|^--- $orig|--- packages/next/dist|g" \
-        -e "s|^\+\+\+ $patched|\+\+\+ packages/next/dist|g" \
-    > "$out" || true
+  echo "📄 Diffing $orig → $patched"
+  # 1) run diff and capture its exit code properly
+  diff -urN \
+    --label "a/packages/next/dist" \
+    --label "b/packages/next/dist" \
+    "$orig" "$patched" > "$tmp_diff"
+  diff_exit=$?
 
-  echo "🧩 [path-fixed] patch has $(wc -l <"$out") lines"
+  # 2) branch on diff_exit
+  if [ "$diff_exit" -eq 0 ]; then
+    echo "⚠️ No differences found — skipping patch generation"
+    rm -f "$tmp_diff"
+    return 0
+  elif [ "$diff_exit" -eq 1 ]; then
+    echo "✅ Differences found — generating patch"
+    debug_dist_diff "$orig" "$patched" \
+      "$PATCHES_REPO/debug-diff-$TAG.log"
+  else
+    echo "🛑 diff failed with exit code $diff_exit"
+    debug_dist_diff "$orig" "$patched" \
+      "$PATCHES_REPO/debug-diff-$TAG.log"
+    exit 1
+  fi
+
+  # 3) move the tmp diff into place (already labeled)
+  mv "$tmp_diff" "$out"
+  echo "✅ Patch generated: $out ($(wc -l <"$out") lines)"
 }
+
 
 # Required tools
 REQUIRED_TOOLS=(jq pnpm git diff grep awk)
