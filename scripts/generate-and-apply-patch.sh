@@ -2,12 +2,12 @@
 set -euo pipefail
 
 generate_dist_patch() {
-  local orig_dist="$1"      # e.g. .nextjs-fork/.dist-original/packages/next/dist
-  local new_dist="$2"       # e.g. .nextjs-fork/.dist-patched/packages/next/dist
-  local out="$3"            # e.g. patches/dist-v15.5.1-canary.17.patch
+  local orig_dist="$1"   # e.g. .nextjs-fork/.dist-original/packages/next/dist
+  local new_dist="$2"    # e.g. .nextjs-fork/.dist-patched/packages/next/dist
+  local out="$3"         # e.g. patches/dist-v15.5.1-canary.17.patch
   local diff_exit=0
 
-  echo "📄 Generating dist patch with diff --label…"
+  echo "📄 Generating dist patch with GNU diff --label…"
 
   diff -urN --strip-trailing-cr \
     --label "a/packages/next/dist" \
@@ -23,7 +23,7 @@ generate_dist_patch() {
       echo "✅ Patch generated: $out ($(wc -l <"$out") lines)"
       ;;
     *)
-      echo "🛑 diff failed with exit code $diff_exit"
+      echo "🛑 diff failed with exit code $diff_exit" >&2
       exit "$diff_exit"
       ;;
   esac
