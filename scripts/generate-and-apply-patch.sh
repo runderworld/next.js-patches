@@ -1,6 +1,46 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+debug_dist_diff() {
+  local original_dir="$1"
+  local dist_dir="$2"
+  local debug_log="$3"
+
+  {
+    echo "🧪 ENTERED debug_dist_diff"
+    echo "original_dir=$original_dir"
+    echo "dist_dir=$dist_dir"
+    echo "debug_log=$debug_log"
+
+    if [ ! -d "$original_dir" ] || [ ! -d "$dist_dir" ]; then
+      echo "🛑 One or both directories missing — skipping debug"
+      return 1
+    fi
+
+    echo
+    echo "🔍 File counts:"
+    echo "  $(find "$original_dir" -type f | wc -l) files in original"
+    echo "  $(find "$dist_dir" -type f | wc -l) files in dist"
+
+    echo
+    echo "🔍 Directory structure differences:"
+    diff -qr "$original_dir" "$dist_dir" || echo "⚠️ diff -qr failed"
+
+    echo
+    echo "🔍 Sample content diff (first 5 files):"
+    find "$dist_dir" -type f | head -n 5 | while read -r dist_file; do
+      rel_path="${dist_file#$dist_dir/}"
+      orig_file="$original_dir/$rel_path"
+      if [ -f "$orig_file" ]; then
+        echo "🔸 Comparing: $rel_path"
+        diff -u "$orig_file" "$dist_file" || echo "⚠️ diff failed for $rel_path"
+      else
+        echo "⚠️ Missing original file: $rel_path"
+      fi
+    done
+  } >> "$debug_log" 2>&1 || echo "🛑 Failed to write to debug log: $debug_log"
+}
+
 generate_dist_patch() {
   local original_dir="$1"
   local dist_dir="$2"
@@ -12,19 +52,25 @@ generate_dist_patch() {
   tmp_patch="$(mktemp)"
 
   echo "📄 Diffing $original_dir → $dist_dir"
-  if ! diff -ruN "$original_dir" "$dist_dir" > "$tmp_diff"; then
-    local diff_exit=$?
-    if [ "$diff_exit" -eq 1 ]; then
-      echo "✅ diff found changes"
-    elif [ "$diff_exit" -eq 2 ]; then
-      echo "🛑 diff failed with fatal error"
-      exit 1
-    else
-      echo "⚠️ Unexpected diff exit code: $diff_exit"
-      exit 1
-    fi
+  diff -ruN "$original_dir" "$dist_dir" > "$tmp_diff"
+  diff_exit=$?
+
+  if [ "$diff_exit" -eq 0 ]; then
+    echo "⚠️ No differences found — running debug inspection"
+    debug_dist_diff "$original_dir" "$dist_dir" "$PATCHES_REPO/debug-diff-$TAG.log"
+    rm -f "$tmp_diff"
+    return 0
+  elif [ "$diff_exit" -eq 1 ]; then
+    echo "✅ diff found changes"
+    debug_dist_diff "$original_dir" "$dist_dir" "$PATCHES_REPO/debug-diff-$TAG.log"
+  elif [ "$diff_exit" -eq 2 ]; then
+    echo "🛑 diff failed with fatal error"
+    debug_dist_diff "$original_dir" "$dist_dir" "$PATCHES_REPO/debug-diff-$TAG.log"
+    exit 1
   else
-    echo "⚠️ diff found no changes"
+    echo "⚠️ Unexpected diff exit code: $diff_exit"
+    debug_dist_diff "$original_dir" "$dist_dir" "$PATCHES_REPO/debug-diff-$TAG.log"
+    exit 1
   fi
 
   echo "✂️ Rewriting patch headers..."
@@ -43,6 +89,7 @@ generate_dist_patch() {
   fi
 
   mv "$tmp_patch" "$output_path"
+  debug_dist_diff "$ORIGINAL_DIR" "$DIST_PATH" "$PATCHES_REPO/debug-diff-$TAG.log"
   rm -f "$tmp_diff"
   echo "✅ Patch generated: $output_path ($(wc -l < "$output_path") lines)"
 }
