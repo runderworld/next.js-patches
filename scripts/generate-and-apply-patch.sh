@@ -52,7 +52,7 @@ generate_dist_patch() {
   tmp_patch="$(mktemp)"
 
   echo "📄 Diffing $original_dir → $dist_dir"
-  diff -ruN "$original_dir" "$dist_dir" > "$tmp_diff"
+  (diff -ruN "$original_dir" "$dist_dir" > "$tmp_diff") || true
   diff_exit=$?
 
   if [ "$diff_exit" -eq 0 ]; then
