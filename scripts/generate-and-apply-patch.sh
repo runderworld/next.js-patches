@@ -6,31 +6,38 @@ generate_dist_patch() {
   local patched="$2"
   local out="$3"
   local tmp_diff
-  local diff_exit
+  local diff_exit=0
 
-  # 1) Run raw diff into a temp file (no debug echo here)
+  # 1) Run raw diff into temp, capture its exit code
   tmp_diff=$(mktemp)
-  diff -urN --strip-trailing-cr "$orig" "$patched" > "$tmp_diff"
-  diff_exit=$?
+  diff -urN --strip-trailing-cr "$orig" "$patched" >"$tmp_diff" || diff_exit=$?
 
-  # 2) Handle exit codes
-  if   [ "$diff_exit" -eq 0 ]; then
-    rm -f "$tmp_diff"
-    return 0
-  elif [ "$diff_exit" -ne 1 ]; then
-    rm -f "$tmp_diff"
-    exit "$diff_exit"
-  fi
+  # 2) Handle exit codes: 0=no changes, 1=changes, >1=error
+  case "$diff_exit" in
+    0)
+      echo "⚠️ No differences found; skipping patch."
+      rm -f "$tmp_diff"
+      return 0
+      ;;
+    1)
+      echo "✅ Differences detected; rewriting headers…"
+      ;;
+    *)
+      echo "🛑 diff failed with exit code $diff_exit"
+      rm -f "$tmp_diff"
+      exit "$diff_exit"
+      ;;
+  esac
 
-  # 3) Rewrite only the hunk headers to the a/... and b/... paths
+  # 3) Strip timestamps and rewrite each header to a/packages/... & b/packages/...
   sed -E \
-    -e "s|^--- $orig/(.+)|--- a/packages/next/dist/\1|g" \
-    -e "s|^\+\+\+ $patched/(.+)|+++ b/packages/next/dist/\1|g" \
-    "$tmp_diff" > "$out"
+    -e "s|^--- $orig/([^\t]+)\t.*|--- a/packages/next/dist/\1|g" \
+    -e "s|^\+\+\+ $patched/([^\t]+)\t.*|+++ b/packages/next/dist/\1|g" \
+    "$tmp_diff" >"$out"
 
-  # 4) Done
-  echo "✅ Patch generated: $out ($(wc -l <"$out") lines)" >&2
+  # 4) Clean up and report
   rm -f "$tmp_diff"
+  echo "✅ Patch generated: $out ($(wc -l <"$out") lines)"
 }
 
 # Required tools
