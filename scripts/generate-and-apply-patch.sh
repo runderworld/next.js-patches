@@ -44,7 +44,7 @@ debug_dist_diff() {
   } >> "$debug_log" 2>&1 || echo "🛑 Failed to write to debug log: $debug_log"
 }
 
-generate_dist_patch() {
+generate_dist_patchORIG() {
   local original_dir="$1"
   local dist_dir="$2"
   local output_path="$3"
@@ -95,6 +95,14 @@ generate_dist_patch() {
   #debug_dist_diff "$ORIGINAL_DIR" "$DIST_PATH" "$PATCHES_REPO/debug-diff-$TAG.log"
   rm -f "$tmp_diff"
   echo "✅ Patch generated: $output_path ($(wc -l < "$output_path") lines)"
+}
+generate_dist_patch() {
+  local orig=$1 patched=$2 out=$3
+
+  echo "🧩 [minimal] git diff --no-index $orig $patched → $out"
+  git diff --no-index "$orig" "$patched" > "$out" || true
+
+  echo "📝 [minimal] patch has $(wc -l <"$out") lines"
 }
 
 # Required tools
@@ -269,8 +277,22 @@ rm -rf "$DIST_PATH" "$NEXTJS_REPO/.turbo"
 echo "🔨 Rebuilding patched Next.js (turbo run build --filter next --force)…"
 # direct Turbo CLI: rebuild only next, force cache bust
 pushd "$NEXTJS_REPO" > /dev/null
-pnpm exec turbo run build --filter next --force
+pnpm exec turbo run build --filter next --force --no-cache
 popd > /dev/null
+
+# ← PAUSE so you can manually inspect `.nextjs-fork/packages/next/dist`
+echo
+echo "🛑 Pausing here.  Inspect your dist dirs:"
+echo "   ORIGINAL → $ORIGINAL_DIR"
+echo "   LIVE     → $DIST_PATH"
+echo
+read -n1 -r -p "Press any key once you’ve poked around…"
+
+# ← now snapshot the rebuilt `dist` into `.dist-patched`
+echo "📸 Capturing patched snapshot…"
+PATCHED_DIR="$NEXTJS_REPO/.dist-patched"
+rm -rf "$PATCHED_DIR"
+cp -r "$DIST_PATH" "$PATCHED_DIR"
 
 # Step 3.6: Verify fingerprint before proceeding
 echo "🔐 Verifying fingerprint in dist output..."
@@ -434,15 +456,15 @@ EOF
   popd > /dev/null
 
   # Always clean up Next.js workspace
-  echo "🧹 Cleaning up Next.js workspace..."
-  git -C "$NEXTJS_REPO" checkout upstream/canary > /dev/null 2>&1 || true
-  git -C "$NEXTJS_REPO" branch -D "$BRANCH_NAME" 2>/dev/null || true
-  git -C "$NEXTJS_REPO" reset --hard
-  git -C "$NEXTJS_REPO" clean -fd
+#  echo "🧹 Cleaning up Next.js workspace..."
+#  git -C "$NEXTJS_REPO" checkout upstream/canary > /dev/null 2>&1 || true
+#  git -C "$NEXTJS_REPO" branch -D "$BRANCH_NAME" 2>/dev/null || true
+#  git -C "$NEXTJS_REPO" reset --hard
+#  git -C "$NEXTJS_REPO" clean -fd
 
   # Always clean up package directory
-  echo "🧹 Cleaning up package directory..."
-  rm -rf "$PACKAGE_DIR"
+#  echo "🧹 Cleaning up package directory..."
+#  rm -rf "$PACKAGE_DIR"
 
   if [ "$PUBLISH_SUCCESS" = false ]; then
     echo "🛑 Aborted due to NPM publish failure."
@@ -454,8 +476,8 @@ fi
 
 # Final cleanup
 if [ "$DRY_RUN" = false ]; then
-  echo "🧹 Removing cloned Next.js workspace..."
-  rm -rf "$NEXTJS_REPO"
+#  echo "🧹 Removing cloned Next.js workspace..."
+#  rm -rf "$NEXTJS_REPO"
 else
   echo "🧪 Dry-run: preserving cloned workspace for inspection."
 fi
