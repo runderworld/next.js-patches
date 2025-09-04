@@ -2,60 +2,28 @@
 set -euo pipefail
 
 generate_dist_patch() {
-  local orig="$1"
-  local patched="$2"
-  local out="$3"
+  local orig="$1" patched="$2" out="$3"
+  local diff_exit=0
 
-  echo
-  echo "🔍 [DEBUG] generate_dist_patch:"
-  echo "    orig    = $orig"
-  echo "    patched = $patched"
-  echo "    output  = $out"
-  echo
-
-  # Temporarily disable pipefail so ls|head SIGPIPE doesn't abort
-  set +o pipefail
-  echo "    ls -R \$orig | head -n20"
-  ls -R "$orig" | head -n20 || true
-  echo
-  echo "    ls -R \$patched | head -n20"
-  ls -R "$patched" | head -n20 || true
-  echo
-  set -o pipefail
-
-  # Temporarily disable exit-on-error so diff exit code 1 won't kill us
-  set +e
-  echo "🧩 Running diff -urN \\"
-  echo "         --label a/packages/next/dist \\"
-  echo "         --label b/packages/next/dist \\"
-  echo "         $orig $patched > $out"
-  echo
-
+  echo "📄 Generating patch…"
   diff -urN \
     --label "a/packages/next/dist" \
     --label "b/packages/next/dist" \
-    "$orig" "$patched" > "$out"
-  local diff_exit=$?
+    "$orig" "$patched" > "$out" || diff_exit=$?
 
-  # Restore exit-on-error
-  set -e
-
-  echo "diff exit code: $diff_exit"
-  echo "output file size: $(wc -c <"$out") bytes"
-  echo "first 20 lines of output:"
-  head -n20 "$out" || true
-  echo
-
-  if [ "$diff_exit" -eq 0 ]; then
-    echo "⚠️ No differences found — skipping patch generation"
-    rm -f "$out"
-    return 0
-  elif [ "$diff_exit" -eq 1 ]; then
-    echo "✅ Differences found — patch at $out ($(wc -l <"$out") lines)"
-  else
-    echo "🛑 diff failed with exit code $diff_exit"
-    exit 1
-  fi
+  case $diff_exit in
+    0)
+      echo "⚠️ No differences found; skipping $out"
+      rm -f "$out"
+      ;;
+    1)
+      echo "✅ Differences found — patch at $out ($(wc -l <"$out") lines)"
+      ;;
+    *)
+      echo "🛑 diff failed with exit code $diff_exit"
+      exit "$diff_exit"
+      ;;
+  esac
 }
 
 # Required tools
