@@ -21,25 +21,26 @@ generate_dist_patch() {
     new_dist="$patched_root"
   fi
 
-  echo "📄 Generating dist patch between"
-  echo "   $orig_dist → $new_dist"
-  echo
+  # 2) Log only to stderr so stdout is pure diff output
+  echo "📄 Generating dist patch:" >&2
+  echo "   $orig_dist → $new_dist" >&2
 
-  # One-shot GNU diff with labels, capture exit=1 (changes) without dying
+  # 3) One-shot GNU diff --label → patch file
   diff -urN --strip-trailing-cr \
     --label "a/packages/next/dist" \
     --label "b/packages/next/dist" \
-    "$orig_dist" "$new_dist" > "$out" || diff_exit=$?
+    "$orig_dist" "$new_dist" >"$out" || diff_exit=$?
 
   # 4) Handle exit codes
   case "$diff_exit" in
     0)
-      echo "⚠️ No changes detected; removing empty patch."
+      # no diffs → remove empty patch
       rm -f "$out"
       return 0
       ;;
     1)
-      echo "✅ Patch generated: $out ($(wc -l <"$out") lines)"
+      # diffs found → patch ready
+      echo "✅ Patch generated: $out ($(wc -l <"$out") lines)" >&2
       ;;
     *)
       # real error
