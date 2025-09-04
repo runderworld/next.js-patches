@@ -2,26 +2,30 @@
 set -euo pipefail
 
 generate_dist_patch() {
-  local orig="$1" patched="$2" out="$3"
+  local orig="$1"
+  local patched="$2"
+  local output="$3"
   local diff_exit=0
 
-  echo "📄 Generating patch…"
-  diff -urN \
-    --label "a/packages/next/dist" \
-    --label "b/packages/next/dist" \
-    "$orig" "$patched" > "$out" || diff_exit=$?
+  echo "📄 Generating dist patch…"
+  diff -urN --strip-trailing-cr \
+    "$orig" "$patched" | \
+  sed -E \
+    -e "s|^--- $orig/(.+)|--- a/packages/next/dist/\1|g" \
+    -e "s|^\+\+\+ $patched/(.+)|+++ b/packages/next/dist/\1|g" \
+    > "$output" || diff_exit=$?
 
   case $diff_exit in
     0)
-      echo "⚠️ No differences found; skipping $out"
-      rm -f "$out"
+      echo "⚠️ No differences found; removing empty patch."
+      rm -f "$output"
       ;;
     1)
-      echo "✅ Differences found — patch at $out ($(wc -l <"$out") lines)"
+      echo "✅ Patch generated: $output ($(wc -l <"$output") lines)"
       ;;
     *)
       echo "🛑 diff failed with exit code $diff_exit"
-      exit "$diff_exit"
+      exit $diff_exit
       ;;
   esac
 }
