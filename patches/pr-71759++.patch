@@ -1,4 +1,4 @@
-From a75f144f03d251d479f91c5ba135827ce60c3fbb Mon Sep 17 00:00:00 2001
+From 16a6b976114707363747e3caa8812bc6f23a0295 Mon Sep 17 00:00:00 2001
 From: Martin Madsen <mj@factbird.com>
 Date: Wed, 23 Oct 2024 23:24:01 +0200
 Subject: [PATCH 1/3] Account for positional option values and support repeated
@@ -10,7 +10,7 @@ Subject: [PATCH 1/3] Account for positional option values and support repeated
  2 files changed, 73 insertions(+), 52 deletions(-)
 
 diff --git a/packages/next/src/server/lib/utils.test.ts b/packages/next/src/server/lib/utils.test.ts
-index 8fc199d8343..249c130c9b6 100644
+index 8fc199d8..249c130c 100644
 --- a/packages/next/src/server/lib/utils.test.ts
 +++ b/packages/next/src/server/lib/utils.test.ts
 @@ -42,9 +42,9 @@ describe('tokenizeArgs', () => {
@@ -56,7 +56,7 @@ index 8fc199d8343..249c130c9b6 100644
      process.env.NODE_OPTIONS = '--other --inspect=0.0.0.0:1234 --additional'
      const result = getFormattedNodeOptionsWithoutInspect()
 diff --git a/packages/next/src/server/lib/utils.ts b/packages/next/src/server/lib/utils.ts
-index 82e8808deaa..9d0c4c0b620 100644
+index 82e8808d..9d0c4c0b 100644
 --- a/packages/next/src/server/lib/utils.ts
 +++ b/packages/next/src/server/lib/utils.ts
 @@ -12,48 +12,40 @@ export function printAndExit(message: string, code = 1) {
@@ -204,7 +204,7 @@ index 82e8808deaa..9d0c4c0b620 100644
 2.32.0 (Apple Git-132)
 
 
-From c8007be0c7b7fb7aca47973c10426dd4552fb5ac Mon Sep 17 00:00:00 2001
+From 03c56fe448e94f0b4fded8505b8e9bdcf240a5d3 Mon Sep 17 00:00:00 2001
 From: Martin Madsen <mj@factbird.com>
 Date: Wed, 23 Oct 2024 23:33:37 +0200
 Subject: [PATCH 2/3] Safely extract the first inspect value
@@ -214,7 +214,7 @@ Subject: [PATCH 2/3] Safely extract the first inspect value
  1 file changed, 6 insertions(+), 5 deletions(-)
 
 diff --git a/packages/next/src/server/lib/utils.ts b/packages/next/src/server/lib/utils.ts
-index 9d0c4c0b620..882bcb5ca62 100644
+index 9d0c4c0b..882bcb5c 100644
 --- a/packages/next/src/server/lib/utils.ts
 +++ b/packages/next/src/server/lib/utils.ts
 @@ -148,9 +148,9 @@ export const getParsedDebugAddress = (): DebugAddress => {
@@ -246,7 +246,7 @@ index 9d0c4c0b620..882bcb5ca62 100644
 2.32.0 (Apple Git-132)
 
 
-From 99a20188441a8a7a4e9f295dfb9a843f1bd37ea8 Mon Sep 17 00:00:00 2001
+From c911d533a0482b0a2b69f7e099d0c9188b0e459c Mon Sep 17 00:00:00 2001
 From: Ryan Underwood <runderworld@gmail.com>
 Date: Wed, 23 Jul 2025 17:50:51 -0700
 Subject: [PATCH 3/3] Additional work needed.
@@ -258,7 +258,7 @@ Subject: [PATCH 3/3] Additional work needed.
  3 files changed, 8 insertions(+), 5 deletions(-)
 
 diff --git a/packages/next/src/cli/next-dev.ts b/packages/next/src/cli/next-dev.ts
-index e36a6975ce3..35d15907e85 100644
+index e36a6975..35d15907 100644
 --- a/packages/next/src/cli/next-dev.ts
 +++ b/packages/next/src/cli/next-dev.ts
 @@ -262,7 +262,7 @@ const nextDev = async (
@@ -287,7 +287,7 @@ index e36a6975ce3..35d15907e85 100644
  
        child = fork(startServerPath, {
 diff --git a/packages/next/src/lib/worker.ts b/packages/next/src/lib/worker.ts
-index c86784fb951..bf8b6e37957 100644
+index c86784fb..bf8b6e37 100644
 --- a/packages/next/src/lib/worker.ts
 +++ b/packages/next/src/lib/worker.ts
 @@ -89,12 +89,12 @@ export class Worker {
@@ -306,7 +306,7 @@ index c86784fb951..bf8b6e37957 100644
  
      if (isolatedMemory) {
 diff --git a/packages/next/src/server/lib/utils.ts b/packages/next/src/server/lib/utils.ts
-index 882bcb5ca62..4e788947ffa 100644
+index 882bcb5c..4e788947 100644
 --- a/packages/next/src/server/lib/utils.ts
 +++ b/packages/next/src/server/lib/utils.ts
 @@ -243,6 +243,9 @@ export function getFormattedNodeOptionsWithoutInspect() {
