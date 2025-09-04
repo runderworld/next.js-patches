@@ -1,49 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-debug_dist_diff() {
-  local original_dir="$1"
-
-  # ← added: ensure debug-log dir exists so redirection never fails
-  mkdir -p "$(dirname "$3")" || echo "⚠️ Could not create debug-log directory"
-  local dist_dir="$2"
-  local debug_log="$3"
-
-  {
-    echo "🧪 ENTERED debug_dist_diff"
-    echo "original_dir=$original_dir"
-    echo "dist_dir=$dist_dir"
-    echo "debug_log=$debug_log"
-
-    if [ ! -d "$original_dir" ] || [ ! -d "$dist_dir" ]; then
-      echo "🛑 One or both directories missing — skipping debug"
-      return 1
-    fi
-
-    echo
-    echo "🔍 File counts:"
-    echo "  $(find "$original_dir" -type f | wc -l) files in original"
-    echo "  $(find "$dist_dir" -type f | wc -l) files in dist"
-
-    echo
-    echo "🔍 Directory structure differences:"
-    diff -qr "$original_dir" "$dist_dir" || echo "⚠️ diff -qr failed"
-
-    echo
-    echo "🔍 Sample content diff (first 5 files):"
-    find "$dist_dir" -type f | head -n 5 | while read -r dist_file; do
-      rel_path="${dist_file#$dist_dir/}"
-      orig_file="$original_dir/$rel_path"
-      if [ -f "$orig_file" ]; then
-        echo "🔸 Comparing: $rel_path"
-        diff -u "$orig_file" "$dist_file" || echo "⚠️ diff failed for $rel_path"
-      else
-        echo "⚠️ Missing original file: $rel_path"
-      fi
-    done
-  } >> "$debug_log" 2>&1 || echo "🛑 Failed to write to debug log: $debug_log"
-}
-
 generate_dist_patch() {
   local orig="$1"
   local patched="$2"
