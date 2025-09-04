@@ -89,7 +89,7 @@ generate_dist_patch() {
   fi
 
   mv "$tmp_patch" "$output_path"
-  debug_dist_diff "$ORIGINAL_DIR" "$DIST_PATH" "$PATCHES_REPO/debug-diff-$TAG.log"
+  #debug_dist_diff "$ORIGINAL_DIR" "$DIST_PATH" "$PATCHES_REPO/debug-diff-$TAG.log"
   rm -f "$tmp_diff"
   echo "✅ Patch generated: $output_path ($(wc -l < "$output_path") lines)"
 }
@@ -229,7 +229,7 @@ git checkout upstream/canary
 git branch -D patch-stack
 popd > /dev/null
 
-# Step 2: Rebase fork on upstream tag and apply patch
+# Step 2: Rebase fork on upstream tag and install deps
 echo "📍 Rebasing fork on upstream tag: $TAG"
 pushd "$NEXTJS_REPO" > /dev/null
 git branch -D "$BRANCH_NAME" 2>/dev/null || true
@@ -270,6 +270,11 @@ else
   echo "$MATCH"
 fi
 
+# Step 3.7: Snapshot post-patch dist output      # ← added
+PATCHED_DIR="$NEXTJS_REPO/.dist-patched"         # ← added
+rm -rf "$PATCHED_DIR"                            # ← added
+cp -r "$DIST_PATH" "$PATCHED_DIR"                # ← added
+
 # Step 4: Generate dist patch
 if [ -f "$DIST_PATCH_PATH" ]; then
   echo "⚠️ Patch already exists: $DIST_PATCH_PATH"
@@ -280,11 +285,12 @@ if [ -f "$DIST_PATCH_PATH" ]; then
   echo "  DIST_PATH:    $DIST_PATH"
   echo "  TMP_PATCH:    $TMP_PATCH"
 
-  # Copy original dist to a subdir inside packages/next for relative diffing
+  # Copy original snapshot into workspace for relative diffing
   cp -r "$ORIGINAL_DIR" "$NEXTJS_REPO/packages/next/original"
 
   pushd "$NEXTJS_REPO/packages/next" > /dev/null
-  generate_dist_patch "$ORIGINAL_DIR" "$DIST_PATH" "$TMP_PATH"
+  # ← modified to diff against post-patch snapshot
+  generate_dist_patch "$ORIGINAL_DIR" "$PATCHED_DIR" "$TMP_PATCH"
   popd > /dev/null
 
   if [ ! -s "$TMP_PATCH" ]; then
@@ -321,11 +327,12 @@ else
 
   mkdir -p "$(dirname "$DIST_PATCH_PATH")"
 
-  # Copy original dist to a subdir inside packages/next for relative diffing
+  # Copy original snapshot into workspace for relative diffing
   cp -r "$ORIGINAL_DIR" "$NEXTJS_REPO/packages/next/original"
 
   pushd "$NEXTJS_REPO/packages/next" > /dev/null
-  generate_dist_patch "$ORIGINAL_DIR" "$DIST_PATH" "$DIST_PATCH_PATH"
+  # ← modified to diff against post-patch snapshot
+  generate_dist_patch "$ORIGINAL_DIR" "$PATCHED_DIR" "$DIST_PATCH_PATH"
   popd > /dev/null
 
   if [ ! -s "$DIST_PATCH_PATH" ]; then
