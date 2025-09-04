@@ -49,28 +49,50 @@ generate_dist_patch() {
   local patched="$2"
   local out="$3"
 
-  echo "🧩 Generating patch with GNU diff --label..."
+  echo
+  echo "🔍 [DEBUG] generate_dist_patch:"
+  echo "    orig   = $orig"
+  echo "    patched= $patched"
+  echo "    output = $out"
+  echo
+
+  echo "    ls -R \$orig | head"
+  ls -R "$orig" | head -n20
+  echo
+  echo "    ls -R \$patched | head"
+  ls -R "$patched" | head -n20
+  echo
+
+  echo "🧩 Running: diff -urN \\"
+  echo "         --label a/packages/next/dist \\"
+  echo "         --label b/packages/next/dist \\"
+  echo "         $orig $patched > $out"
+  echo
+
   diff -urN \
     --label "a/packages/next/dist" \
     --label "b/packages/next/dist" \
-    "$orig" "$patched" > "$out" || true
+    "$orig" "$patched" > "$out"
   diff_exit=$?
+
+  echo "diff exit code: $diff_exit"
+  echo "output file size: $(wc -c <"$out") bytes"
+  echo "first 20 lines of output:"
+  head -n20 "$out" || true
+  echo
 
   if [ "$diff_exit" -eq 0 ]; then
     echo "⚠️ No differences found — skipping patch generation"
     rm -f "$out"
     return 0
   elif [ "$diff_exit" -eq 1 ]; then
-    echo "✅ Differences found — patch at $out (lines: $(wc -l <"$out"))"
-    debug_dist_diff "$orig" "$patched" \
-      "$PATCHES_REPO/debug-diff-$TAG.log"
+    echo "✅ Differences found — patch at $out ($(wc -l <"$out") lines)"
   else
     echo "🛑 diff failed with exit code $diff_exit"
-    debug_dist_diff "$orig" "$patched" \
-      "$PATCHES_REPO/debug-diff-$TAG.log"
     exit 1
   fi
 }
+
 
 # Required tools
 REQUIRED_TOOLS=(jq pnpm git diff grep awk)
