@@ -99,10 +99,13 @@ generate_dist_patchORIG() {
 generate_dist_patch() {
   local orig=$1 patched=$2 out=$3
 
-  echo "🧩 [minimal] git diff --no-index $orig $patched → $out"
-  git diff --no-index "$orig" "$patched" > "$out" || true
+  git diff -U0 --no-index "$orig" "$patched" \
+    | sed \
+        -e "s|^--- $orig|--- packages/next/dist|g" \
+        -e "s|^\+\+\+ $patched|\+\+\+ packages/next/dist|g" \
+    > "$out" || true
 
-  echo "📝 [minimal] patch has $(wc -l <"$out") lines"
+  echo "🧩 [path-fixed] patch has $(wc -l <"$out") lines"
 }
 
 # Required tools
@@ -325,6 +328,9 @@ if [ -f "$DIST_PATCH_PATH" ]; then
   generate_dist_patch "$ORIGINAL_DIR" "$PATCHED_DIR" "$TMP_PATCH"
   popd > /dev/null
 
+  echo "🛑 Debug mode: exiting before publish & cleanup"
+  exit 0
+
   if [ ! -s "$TMP_PATCH" ]; then
     echo "🛑 TMP_PATCH is empty. Diff succeeded but no output was captured."
     rm -f "$TMP_PATCH"
@@ -363,6 +369,9 @@ else
   # ← modified to diff against post-patch snapshot
   generate_dist_patch "$ORIGINAL_DIR" "$PATCHED_DIR" "$DIST_PATCH_PATH"
   popd > /dev/null
+
+  echo "🛑 Debug mode: exiting before publish & cleanup"
+  exit 0
 
   if [ ! -s "$DIST_PATCH_PATH" ]; then
     echo "🛑 Patch file is empty. Diff succeeded but no output was captured."
