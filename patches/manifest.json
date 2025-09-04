@@ -1,0 +1,12 @@
+{
+  "dist-v15.5.1-canary.11-pr71759++.patch": {
+    "upstream": "v15.5.1-canary.11",
+    "sourcePatch": "pr-71759++.patch",
+    "commits": [
+      "fda4d5b1516490cea76650a80c8ecaac58f30c74",
+      "020f58dbef9bfe5e57b62e56870194fe62e02983",
+      "f80235400f160c4d1278ed3e336083c5c5d66a2a"
+    ],
+    "created": "2025-09-04T06:12:52Z"
+  }
+}
