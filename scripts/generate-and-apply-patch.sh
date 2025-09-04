@@ -2,51 +2,37 @@
 set -euo pipefail
 
 generate_dist_patch() {
-  local orig_root="$1"      # e.g. .nextjs-fork/.dist-original
-  local patched_root="$2"   # e.g. .nextjs-fork/.dist-patched
-  local out="$3"            # e.g. patches/dist-v15.5.1.patch
+  local orig_root="$1"      # .nextjs-fork/.dist-original
+  local patched_root="$2"   # .nextjs-fork/.dist-patched
+  local out="$3"            # patches/dist-….patch
   local orig_dist new_dist
   local diff_exit=0
 
-  # 1) Figure out where the real "dist" lives
-  if [ -d "$orig_root/packages/next/dist" ]; then
-    orig_dist="$orig_root/packages/next/dist"
+  # 1) Force the dist paths
+  orig_dist="$orig_root/packages/next/dist"
+  new_dist="$patched_root/packages/next/dist"
+
+  # 2) Blow away any old patch, log to stderr
+  rm -f "$out"
+  echo "📄 Generating dist patch between:" >&2
+  echo "   $orig_dist → $new_dist" >&2
+
+  # 3) Walk files in the current shell via process substitution
+  while IFS= read -r full; do
+    rel="${full#$orig_dist/}"
+    diff -u --strip-trailing-cr \
+      --label "a/packages/next/dist/$rel" \
+      --label "b/packages/next/dist/$rel" \
+      "$full" "$new_dist/$rel" >>"$out" || diff_exit=1
+  done < <(find "$orig_dist" -type f)
+
+  # 4) Finalize
+  if [ "$diff_exit" -eq 0 ]; then
+    echo "⚠️ No changes detected; removing empty patch." >&2
+    rm -f "$out"
   else
-    orig_dist="$orig_root"
+    echo "✅ Patch generated: $out ($(wc -l <"$out") lines)" >&2
   fi
-
-  if [ -d "$patched_root/packages/next/dist" ]; then
-    new_dist="$patched_root/packages/next/dist"
-  else
-    new_dist="$patched_root"
-  fi
-
-  echo "📄 Generating dist patch between"
-  echo "   $orig_dist → $new_dist"
-  echo
-
-  # One-shot GNU diff with labels, capture exit=1 (changes) without dying
-  diff -urN --strip-trailing-cr \
-    --label "a/packages/next/dist" \
-    --label "b/packages/next/dist" \
-    "$orig_dist" "$new_dist" > "$out" || diff_exit=$?
-
-  # 4) Handle exit codes
-  case "$diff_exit" in
-    0)
-      echo "⚠️ No changes detected; removing empty patch."
-      rm -f "$out"
-      return 0
-      ;;
-    1)
-      echo "✅ Patch generated: $out ($(wc -l <"$out") lines)"
-      ;;
-    *)
-      # real error
-      echo "🛑 diff failed with exit code $diff_exit" >&2
-      exit "$diff_exit"
-      ;;
-  esac
 }
 
 # Required tools
