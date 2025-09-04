@@ -2,30 +2,29 @@
 set -euo pipefail
 
 generate_dist_patch() {
-  local orig="$1"
-  local patched="$2"
-  local output="$3"
+  local orig_dist="$1"      # e.g. .nextjs-fork/.dist-original/packages/next/dist
+  local new_dist="$2"       # e.g. .nextjs-fork/.dist-patched/packages/next/dist
+  local out="$3"            # e.g. patches/dist-v15.5.1-canary.17.patch
   local diff_exit=0
 
-  echo "📄 Generating dist patch…"
-  diff -urN --strip-trailing-cr \
-    "$orig" "$patched" | \
-  sed -E \
-    -e "s|^--- $orig/(.+)|--- a/packages/next/dist/\1|g" \
-    -e "s|^\+\+\+ $patched/(.+)|+++ b/packages/next/dist/\1|g" \
-    > "$output" || diff_exit=$?
+  echo "📄 Generating dist patch with diff --label…"
 
-  case $diff_exit in
+  diff -urN --strip-trailing-cr \
+    --label "a/packages/next/dist" \
+    --label "b/packages/next/dist" \
+    "$orig_dist" "$new_dist" > "$out" || diff_exit=$?
+
+  case "$diff_exit" in
     0)
-      echo "⚠️ No differences found; removing empty patch."
-      rm -f "$output"
+      echo "⚠️ No changes detected; removing $out"
+      rm -f "$out"
       ;;
     1)
-      echo "✅ Patch generated: $output ($(wc -l <"$output") lines)"
+      echo "✅ Patch generated: $out ($(wc -l <"$out") lines)"
       ;;
     *)
       echo "🛑 diff failed with exit code $diff_exit"
-      exit $diff_exit
+      exit "$diff_exit"
       ;;
   esac
 }
