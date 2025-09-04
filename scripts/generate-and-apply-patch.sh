@@ -13,20 +13,18 @@ generate_dist_patch() {
   echo "    output  = $out"
   echo
 
-  # temporarily disable pipefail so ls|head doesn’t kill us
+  # Temporarily disable pipefail so ls|head SIGPIPE doesn't abort
   set +o pipefail
-
   echo "    ls -R \$orig | head -n20"
   ls -R "$orig" | head -n20 || true
   echo
-
   echo "    ls -R \$patched | head -n20"
   ls -R "$patched" | head -n20 || true
   echo
-
-  # re-enable pipefail
   set -o pipefail
 
+  # Temporarily disable exit-on-error so diff exit code 1 won't kill us
+  set +e
   echo "🧩 Running diff -urN \\"
   echo "         --label a/packages/next/dist \\"
   echo "         --label b/packages/next/dist \\"
@@ -37,7 +35,10 @@ generate_dist_patch() {
     --label "a/packages/next/dist" \
     --label "b/packages/next/dist" \
     "$orig" "$patched" > "$out"
-  diff_exit=$?
+  local diff_exit=$?
+
+  # Restore exit-on-error
+  set -e
 
   echo "diff exit code: $diff_exit"
   echo "output file size: $(wc -c <"$out") bytes"
