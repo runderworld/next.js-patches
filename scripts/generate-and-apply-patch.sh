@@ -88,10 +88,12 @@ elif [[ "${1:-}" == "--dry-run" ]]; then
   echo "🧪 Dry-run mode enabled: no commit or publish will occur."
 fi
 
-# Prompt for upstream tag
-DEFAULT_TAG="v15.5.1-canary.17"
+# Prompt for upstream tag (and provide current canary version as default)
+DEFAULT_TAG="$(npm info next dist-tags.canary 2>/dev/null || echo '15.6.0-canary.10')"
+DEFAULT_TAG="v${DEFAULT_TAG#v}"  # ensure it starts with 'v'
 read -p "🔖 Enter Next.js tag to patch [default: $DEFAULT_TAG]: " TAG
 TAG="${TAG:-$DEFAULT_TAG}"
+[[ "$TAG" != v* ]] && TAG="v$TAG"
 BRANCH_NAME="patch-${TAG}"
 DIST_PATCH_NAME="dist-${TAG}-pr71759++.patch"
 DIST_PATCH_PATH="$PATCHES_REPO/patches/$DIST_PATCH_NAME"
