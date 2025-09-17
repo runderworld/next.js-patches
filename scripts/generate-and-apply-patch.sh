@@ -74,19 +74,24 @@ PR_COMMITS=(
 
 # Parse flags
 DRY_RUN=false
-if [[ "${1:-}" == "--help" ]]; then
-  echo "Usage: ./generate-and-apply-patch.sh [--dry-run]"
-  echo ""
-  echo "Automates patch generation, dist diffing, and NPM publishing for Next.js."
-  echo ""
-  echo "Options:"
-  echo "  --dry-run    Run without committing or publishing"
-  echo "  --help       Show this help message"
-  exit 0
-elif [[ "${1:-}" == "--dry-run" ]]; then
-  DRY_RUN=true
-  echo "🧪 Dry-run mode enabled: no commit or publish will occur."
-fi
+FORCE_REFRESH=false
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --dry-run) DRY_RUN=true ;;
+    --force-refresh) FORCE_REFRESH=true ;;
+    --help)
+      echo "Usage: ./generate-and-apply-patch.sh [--dry-run] [--force-refresh]"
+      echo ""
+      echo "Options:"
+      echo "  --dry-run        Run without committing or publishing"
+      echo "  --force-refresh  Delete and reclone Next.js workspace"
+      echo "  --help           Show this help message"
+      exit 0
+      ;;
+  esac
+  shift
+done
 
 # Prompt for upstream tag (and provide current canary version as default)
 DEFAULT_TAG="$(npm info next dist-tags.canary 2>/dev/null || echo '15.6.0-canary.10')"
@@ -100,14 +105,21 @@ DIST_PATCH_PATH="$PATCHES_REPO/patches/$DIST_PATCH_NAME"
 TAG_NAME="${TAG}" # ← updated: tag is now just "v15.5.2"
 TIMESTAMP="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
 
-# Clone Next.js fork into workspace
-if [ -d "$NEXTJS_REPO" ]; then
-  echo "🧹 Removing previous Next.js clone..."
+if [ "$FORCE_REFRESH" = true ]; then
+  echo "🔁 Force-refresh: removing existing Next.js workspace..."
   rm -rf "$NEXTJS_REPO"
 fi
 
-echo "🌐 Cloning Next.js fork into workspace..."
-git clone --depth 10 git@github.com:runderworld/next.js.git "$NEXTJS_REPO"
+if [ -d "$NEXTJS_REPO/.git" ]; then
+  echo "🔄 Reusing existing Next.js workspace..."
+  pushd "$NEXTJS_REPO" > /dev/null
+  git fetch origin patch-pr71759++ --update-head-ok
+  git fetch upstream "refs/tags/$TAG:refs/tags/$TAG" "+refs/heads/canary:refs/remotes/upstream/canary" --depth=1
+  popd > /dev/null
+else
+  echo "🌐 Cloning Next.js fork into workspace..."
+  git clone git@github.com:runderworld/next.js.git "$NEXTJS_REPO"
+fi
 
 # Ensures all three PR commits are available locally without triggering a massive packfile download
 echo "🌐 Fetching branch on origin that contains all PR commits (patch-pr71759++)..."
@@ -125,7 +137,8 @@ for commit in "${PR_COMMITS[@]}"; do
 done
 
 echo "🌐 Adding upstream remote..."
-git -C "$NEXTJS_REPO" remote add upstream https://github.com/vercel/next.js.git
+git -C "$NEXTJS_REPO" remote get-url upstream >/dev/null 2>&1 || \
+  git -C "$NEXTJS_REPO" remote add upstream https://github.com/vercel/next.js.git
 
 # Step 0: Verify both repos are clean
 check_clean() {
@@ -149,9 +162,7 @@ if git -C "$PATCHES_REPO" rev-parse --verify --quiet "$BRANCH_NAME"; then
 fi
 
 # Step 1: Create consolidated patch from commits
-echo "🔄 Fetching upstream Next.js tag and canary branch..."
 pushd "$NEXTJS_REPO" > /dev/null
-git fetch upstream "refs/tags/$TAG:refs/tags/$TAG" "refs/heads/canary:refs/remotes/upstream/canary" --depth=1
 
 echo "📍 Creating patch-stack branch from upstream/canary"
 git branch -D patch-stack 2>/dev/null || true
@@ -194,7 +205,8 @@ if [[ ! -d "$DIST_PATH" ]]; then
   exit 1
 fi
 
-ORIGINAL_DIR="$NEXTJS_REPO/.dist-original"
+ORIGINAL_DIR="$NEXTJS_REPO/.dist-original/packages/next/dist"
+mkdir -p "$(dirname "$ORIGINAL_DIR")"
 rm -rf "$ORIGINAL_DIR"
 cp -r "$DIST_PATH" "$ORIGINAL_DIR"
 
@@ -236,11 +248,6 @@ else
   echo "✅ Fingerprint token found:"
   echo "$MATCH"
 fi
-
-# Step 3.7: Snapshot post-patch dist output      # ← added
-PATCHED_DIR="$NEXTJS_REPO/.dist-patched"         # ← added
-rm -rf "$PATCHED_DIR"                            # ← added
-cp -r "$DIST_PATH" "$PATCHED_DIR"                # ← added
 
 # Step 4: Generate dist patch
 if [ -f "$DIST_PATCH_PATH" ]; then
@@ -414,9 +421,12 @@ fi
 
 # Final cleanup
 if [ "$DRY_RUN" = false ]; then
-  echo "🧹 Removing cloned Next.js workspace..."
-  rm -rf "$NEXTJS_REPO"
+  if [ "$FORCE_REFRESH" = true ]; then
+    echo "🧹 Removing cloned Next.js workspace..."
+    rm -rf "$NEXTJS_REPO"
+  else
+    echo "🧪 Preserving cloned workspace for reuse."
+  fi
 else
   echo "🧪 Dry-run: preserving cloned workspace for inspection."
 fi
-
