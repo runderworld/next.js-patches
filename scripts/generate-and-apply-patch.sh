@@ -41,17 +41,20 @@ PR_COMMITS=(
 # Parse flags
 DRY_RUN=false
 FORCE_REFRESH=false
+CLEAN_NEXT=false
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --dry-run) DRY_RUN=true ;;
     --force-refresh) FORCE_REFRESH=true ;;
+    --clean-next) CLEAN_NEXT=true ;;
     --help)
-      echo "Usage: ./generate-and-apply-patch.sh [--dry-run] [--force-refresh]"
+      echo "Usage: ./generate-and-apply-patch.sh [--dry-run] [--force-refresh] [--clean-next]"
       echo ""
       echo "Options:"
       echo "  --dry-run        Run without committing or publishing"
       echo "  --force-refresh  Delete and reclone Next.js workspace"
+      echo "  --clean-next     Force clean rebuild of Next.js (dist + turbo cache)"
       echo "  --help           Show this help message"
       exit 0
       ;;
@@ -175,14 +178,20 @@ fi
 echo "🧵 Applying patch with git am: $PATCH_NAME"
 git am "$PATCH_FILE"
 
-# ← delete stale dist + turbo cache, then one forced rebuild
-echo "🧹 Cleaning dist + Turbo cache..."
-rm -rf "$DIST_PATH" "$NEXTJS_REPO/.turbo"
+if [ "$CLEAN_NEXT" = true ]; then
+  echo "🧹 Cleaning dist + Turbo cache (--clean-next enabled)..."
+  rm -rf "$DIST_PATH" "$NEXTJS_REPO/.turbo"
+else
+  echo "🧪 Skipping dist cleanup (no --clean-next flag)"
+fi
 
-echo "🔨 Rebuilding patched Next.js (turbo run build --filter next --force)…"
-# direct Turbo CLI: rebuild only next, force cache bust
-pushd "$NEXTJS_REPO" > /dev/null
-pnpm exec turbo run build --filter next --force --no-cache
+if [ "$CLEAN_NEXT" = true ]; then
+  echo "🔨 Clean rebuilding Next.js (--clean-next enabled)"
+  pnpm exec turbo run build --filter next --force --no-cache
+else
+  echo "🔄 Incremental rebuild of Next.js (default)"
+  pnpm exec turbo run build --filter next
+fi
 popd > /dev/null
 
 # ← PAUSE so you can manually inspect `.nextjs-fork/packages/next/dist`
@@ -211,14 +220,13 @@ fi
 echo "🧩 Generating dist patch with patch-package..."
 pushd "$NEXTJS_REPO" > /dev/null
 
-# Ensure patch-package is available
-if ! command -v patch-package >/dev/null 2>&1; then
-  echo "❌ patch-package is not installed. Please run: pnpm add -D patch-package"
+if ! npx --yes patch-package next; then
+  echo "🛑 patch-package failed to run via npx"
   exit 1
 fi
 
 # Run patch-package to capture changes in next
-npx patch-package next
+npx --yes patch-package next
 
 # Rename patch to match naming convention
 PATCHED_FILE="$NEXTJS_REPO/patches/next+${TAG}.patch"
