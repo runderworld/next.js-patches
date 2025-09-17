@@ -1,40 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-generate_dist_patch() {
-  local orig_root="$1"      # .nextjs-fork/.dist-original
-  local patched_root="$2"   # .nextjs-fork/.dist-patched
-  local out="$3"            # patches/dist-….patch
-  local orig_dist new_dist
-  local diff_exit=0
-
-  # 1) Force the dist paths
-  orig_dist="$orig_root/packages/next/dist"
-  new_dist="$patched_root/packages/next/dist"
-
-  # 2) Blow away any old patch, log to stderr
-  rm -f "$out"
-  echo "📄 Generating dist patch between:" >&2
-  echo "   $orig_dist → $new_dist" >&2
-
-  # 3) Walk files in the current shell via process substitution
-  while IFS= read -r full; do
-    rel="${full#$orig_dist/}"
-    diff -u --strip-trailing-cr \
-      --label "a/packages/next/dist/$rel" \
-      --label "b/packages/next/dist/$rel" \
-      "$full" "$new_dist/$rel" >>"$out" || diff_exit=1
-  done < <(find "$orig_dist" -type f)
-
-  # 4) Finalize
-  if [ "$diff_exit" -eq 0 ]; then
-    echo "⚠️ No changes detected; removing empty patch." >&2
-    rm -f "$out"
-  else
-    echo "✅ Patch generated: $out ($(wc -l <"$out") lines)" >&2
-  fi
-}
-
 # Required tools
 REQUIRED_TOOLS=(jq pnpm git diff grep awk)
 for tool in "${REQUIRED_TOOLS[@]}"; do
@@ -205,11 +171,6 @@ if [[ ! -d "$DIST_PATH" ]]; then
   exit 1
 fi
 
-ORIGINAL_DIR="$NEXTJS_REPO/.dist-original/packages/next/dist"
-mkdir -p "$(dirname "$ORIGINAL_DIR")"
-rm -rf "$ORIGINAL_DIR"
-cp -r "$DIST_PATH" "$ORIGINAL_DIR"
-
 # Step 3.5: Apply patch and rebuild
 echo "🧵 Applying patch with git am: $PATCH_NAME"
 git am "$PATCH_FILE"
@@ -234,9 +195,6 @@ popd > /dev/null
 
 # ← now snapshot the rebuilt `dist` into `.dist-patched`
 echo "📸 Capturing patched snapshot…"
-PATCHED_DIR="$NEXTJS_REPO/.dist-patched"
-rm -rf "$PATCHED_DIR"
-cp -r "$DIST_PATH" "$PATCHED_DIR"
 
 # Step 3.6: Verify fingerprint before proceeding
 echo "🔐 Verifying fingerprint in dist output..."
@@ -249,80 +207,29 @@ else
   echo "$MATCH"
 fi
 
-# Step 4: Generate dist patch
-if [ -f "$DIST_PATCH_PATH" ]; then
-  echo "⚠️ Patch already exists: $DIST_PATCH_PATH"
+# Step 4: Generate dist patch using patch-package
+echo "🧩 Generating dist patch with patch-package..."
+pushd "$NEXTJS_REPO" > /dev/null
 
-  TMP_PATCH="$(mktemp)"
-  echo "🔍 Regenerating patch for comparison..."
-  echo "  ORIGINAL_DIR: $ORIGINAL_DIR"
-  echo "  DIST_PATH:    $DIST_PATH"
-  echo "  TMP_PATCH:    $TMP_PATCH"
-
-  pushd "$NEXTJS_REPO/packages/next" > /dev/null
-  # ← modified to diff against post-patch snapshot
-  generate_dist_patch "$ORIGINAL_DIR" "$PATCHED_DIR" "$TMP_PATCH"
-  popd > /dev/null
-
-#  echo "🛑 Debug mode: exiting before publish & cleanup"
-#  exit 0
-
-  if [ ! -s "$TMP_PATCH" ]; then
-    echo "🛑 TMP_PATCH is empty. Diff succeeded but no output was captured."
-    rm -f "$TMP_PATCH"
-    exit 1
-  fi
-
-  OLD_HASH="$(awk '{print $1}' <<< "$(shasum -a 256 "$DIST_PATCH_PATH")")"
-  NEW_HASH="$(awk '{print $1}' <<< "$(shasum -a 256 "$TMP_PATCH")")"
-
-  if [[ "$OLD_HASH" == "$NEW_HASH" ]]; then
-    echo "✅ Patch content is identical. Skipping overwrite."
-    rm "$TMP_PATCH"
-  else
-    echo "⚠️ Patch content differs."
-    read -rp "Overwrite existing patch with new content? [y/N]: " CONFIRM
-    if [[ "$CONFIRM" =~ ^[Yy]$ ]]; then
-      mv "$TMP_PATCH" "$DIST_PATCH_PATH"
-      echo "✅ Patch updated."
-    else
-      rm "$TMP_PATCH"
-      echo "🛑 Aborting: patch not overwritten."
-      exit 0
-    fi
-  fi
-else
-  echo "🧩 Generating new dist patch..."
-
-  echo "🔍 Running diff between:"
-
-  mkdir -p "$(dirname "$DIST_PATCH_PATH")"
-
-  # Copy original snapshot into workspace for relative diffing
-  cp -r "$ORIGINAL_DIR" "$NEXTJS_REPO/packages/next/original"
-
-  pushd "$NEXTJS_REPO/packages/next" > /dev/null
-  # ← modified to diff against post-patch snapshot
-  generate_dist_patch "$ORIGINAL_DIR" "$PATCHED_DIR" "$DIST_PATCH_PATH"
-  popd > /dev/null
-
-#  echo "🛑 Debug mode: exiting before publish & cleanup"
-#  exit 0
-
-  if [ ! -s "$DIST_PATCH_PATH" ]; then
-    echo "🛑 Patch file is empty. Diff succeeded but no output was captured."
-    exit 1
-  fi
-
-  echo "✅ Dist patch generated: $DIST_PATCH_PATH"
-
-  if [ ! -s "$DIST_PATCH_PATH" ]; then
-    echo "🛑 Patch file is empty. Diff succeeded but no output was captured."
-    exit 1
-  fi
-
-  echo "✅ Dist patch generated: $DIST_PATCH_PATH"
+# Ensure patch-package is available
+if ! command -v patch-package >/dev/null 2>&1; then
+  echo "❌ patch-package is not installed. Please run: pnpm add -D patch-package"
+  exit 1
 fi
+
+# Run patch-package to capture changes in next
+npx patch-package next
+
+# Rename patch to match naming convention
+PATCHED_FILE="$NEXTJS_REPO/patches/next+${TAG}.patch"
+if [ -f "$PATCHED_FILE" ]; then
+  mv "$PATCHED_FILE" "$DIST_PATCH_PATH"
+  echo "✅ Dist patch generated: $DIST_PATCH_PATH"
+else
+  echo "🛑 patch-package did not produce a patch file."
+  exit 1
+fi
+
 echo "✅ Reached end of patch generation block"
 popd > /dev/null
 
