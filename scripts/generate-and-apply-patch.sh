@@ -21,7 +21,7 @@ PACKAGE_DIR="$PATCHES_REPO/package"
 # Patch metadata
 PATCH_NAME="pr-71759++.patch"
 PATCH_FILE="$PATCHES_REPO/patches/$PATCH_NAME"
-MANIFEST_PATH="$PATCHES_REPO/patches/manifest.json"
+MANIFEST_PATH="patches/manifest.json"
 FINGERPRINT_TOKEN="runderworld.node.options.patch"
 
 # Commits to include in pr-71759++ patch.
@@ -182,14 +182,14 @@ if [ "$CLEAN_NEXT" = true ]; then
   echo "🧹 Cleaning dist + Turbo cache (--clean-next enabled)..."
   rm -rf "$DIST_PATH" "$NEXTJS_REPO/.turbo"
 else
-  echo "🧪 Skipping dist cleanup (no --clean-next flag)"
+  echo "🧪 Skipping dist cleanup (default; no --clean-next flag)"
 fi
 
 if [ "$CLEAN_NEXT" = true ]; then
   echo "🔨 Clean rebuilding Next.js (--clean-next enabled)"
   pnpm exec turbo run build --filter next --force --no-cache
 else
-  echo "🔄 Incremental rebuild of Next.js (default)"
+  echo "🔄 Incremental rebuild of Next.js (default; no --clean-next flag)"
   pnpm exec turbo run build --filter next
 fi
 popd > /dev/null
@@ -212,68 +212,167 @@ if [[ -z "$MATCH" ]]; then
   echo "❌ Fingerprint token not found in dist output."
   exit 1
 else
-  echo "✅ Fingerprint token found:"
-  echo "$MATCH"
+  echo "✅ Fingerprint token found!"
+  #echo "$MATCH"
 fi
 
-# Step 4: Generate dist patch using patch-package
-echo "🧩 Generating dist patch with patch-package..."
-pushd "$NEXTJS_REPO" > /dev/null
+# Step 4: Generate dist patch with patch-package using a temp workspace
+echo "🧩 Generating dist patch with patch-package (generation uses v7.x)..."
 
-if ! npx --yes patch-package next; then
-  echo "🛑 patch-package failed to run via npx"
+PATCH_TEMP="$PATCHES_REPO/.patch-temp"
+mkdir -p "$PATCH_TEMP"
+pushd "$PATCH_TEMP" > /dev/null
+
+# Step 4(a): Install official registry version of Next.js
+cat > package.json <<EOF
+{
+  "name": "patch-temp",
+  "version": "1.0.0",
+  "dependencies": {
+    "next": "${TAG#v}"
+  }
+}
+EOF
+
+if ! npm install --silent; then
+  echo "🛑 Failed to install registry version of next"
+  popd > /dev/null
+  rm -rf "$PATCH_TEMP"
   exit 1
 fi
 
-# Run patch-package to capture changes in next
-npx --yes patch-package next
+# Step 4(b): Initialize Git and commit clean baseline
+git init -q
+git add node_modules/next
+git commit -q -m "clean next install"
 
-# Rename patch to match naming convention
-PATCHED_FILE="$NEXTJS_REPO/patches/next+${TAG}.patch"
-if [ -f "$PATCHED_FILE" ]; then
-  mv "$PATCHED_FILE" "$DIST_PATCH_PATH"
+# Step 4(c): Overwrite dist/ with your patched output
+rm -rf node_modules/next/dist
+cp -R "$NEXTJS_REPO/packages/next/dist" "node_modules/next/"
+echo "📁 Verifying copied dist files:"
+ls node_modules/next/dist/cli/next-dev.js \
+  || echo "❌ Missing: next-dev.js"
+ls node_modules/next/dist/compiled/next-server/pages.runtime.dev.js \
+  || echo "❌ Missing: pages.runtime.dev.js"
+
+# Step 4(d): Unstage everything and stage only the affected files
+git reset
+
+PATCHED_FILES=(
+  node_modules/next/dist/cli/next-dev.js
+  node_modules/next/dist/cli/next-dev.js.map
+  node_modules/next/dist/compiled/next-server/app-page-experimental.runtime.dev.js
+  node_modules/next/dist/compiled/next-server/app-page-experimental.runtime.dev.js.map
+  node_modules/next/dist/compiled/next-server/app-page-turbo-experimental.runtime.dev.js
+  node_modules/next/dist/compiled/next-server/app-page-turbo-experimental.runtime.dev.js.map
+  node_modules/next/dist/compiled/next-server/app-page-turbo.runtime.dev.js
+  node_modules/next/dist/compiled/next-server/app-page-turbo.runtime.dev.js.map
+  node_modules/next/dist/compiled/next-server/app-page.runtime.dev.js
+  node_modules/next/dist/compiled/next-server/app-page.runtime.dev.js.map
+  node_modules/next/dist/compiled/next-server/pages-api-turbo.runtime.dev.js
+  node_modules/next/dist/compiled/next-server/pages-api-turbo.runtime.dev.js.map
+  node_modules/next/dist/compiled/next-server/pages-api.runtime.dev.js
+  node_modules/next/dist/compiled/next-server/pages-api.runtime.dev.js.map
+  node_modules/next/dist/compiled/next-server/pages-turbo.runtime.dev.js
+  node_modules/next/dist/compiled/next-server/pages-turbo.runtime.dev.js.map
+  node_modules/next/dist/compiled/next-server/pages.runtime.dev.js
+  node_modules/next/dist/compiled/next-server/pages.runtime.dev.js.map
+  node_modules/next/dist/esm/lib/worker.js
+  node_modules/next/dist/esm/lib/worker.js.map
+  node_modules/next/dist/esm/server/lib/utils.js
+  node_modules/next/dist/esm/server/lib/utils.js.map
+  node_modules/next/dist/lib/worker.js
+  node_modules/next/dist/lib/worker.js.map
+  node_modules/next/dist/server/lib/utils.d.ts
+  node_modules/next/dist/server/lib/utils.js
+  node_modules/next/dist/server/lib/utils.js.map
+)
+
+for file in "${PATCHED_FILES[@]}"; do
+  if [[ -f "$file" ]]; then
+    git add "$file"
+  else
+    echo "❌ Missing expected file: $file"
+    popd > /dev/null
+    rm -rf "$PATCH_TEMP"
+    exit 1
+  fi
+done
+
+if ! git commit -q -m "patched dist files"; then
+  echo "🛑 Git commit failed—no files staged"
+  popd > /dev/null
+  rm -rf "$PATCH_TEMP"
+  exit 1
+fi
+
+# Step 4(e): Run patch-package@7 to generate patch in v7 format
+if ! npx patch-package@^7 next --patch-dir "../patches"; then
+  echo "🛑 patch-package v7 failed"
+  popd > /dev/null
+  rm -rf "$PATCH_TEMP"
+  exit 1
+fi
+
+# Step 4(f): Cleanup
+popd > /dev/null
+rm -rf "$PATCH_TEMP"
+
+# Step 4(g): Output patch summary and rename
+STRIPPED_TAG="${TAG#v}"
+PATCH_NAME="next+${STRIPPED_TAG}.patch"
+PATCH_FILE_PATH="$PATCHES_REPO/patches/$PATCH_NAME"
+
+echo "📁 Files touched:"
+grep '^+++' "$PATCH_FILE_PATH" | sort | uniq -c
+
+if [[ -f "$PATCH_FILE_PATH" ]]; then
+  mv "$PATCH_FILE_PATH" "$DIST_PATCH_PATH"
   echo "✅ Dist patch generated: $DIST_PATCH_PATH"
 else
-  echo "🛑 patch-package did not produce a patch file."
+  echo "🛑 patch-package did not produce 'next+${STRIPPED_TAG}.patch'"
   exit 1
 fi
 
 echo "✅ Reached end of patch generation block"
-popd > /dev/null
 
-# Step 5: Update manifest
-echo "🗂️ Updating manifest: $MANIFEST_PATH"
-if [ ! -f "$MANIFEST_PATH" ]; then echo "{}" > "$MANIFEST_PATH"; fi
+# Step 5: Commit dist patch to a new branch and push
+STRIPPED_TAG="${TAG#v}"
+BRANCH="patch-v${STRIPPED_TAG}"
+PATCH_FILENAME=$(basename "$DIST_PATCH_PATH")
 
-jq --arg tag "$TAG" \
-   --arg patch "$DIST_PATCH_NAME" \
-   --arg source "$PATCH_NAME" \
-   --arg time "$TIMESTAMP" \
-   --argjson commits "$(printf '%s\n' "${PR_COMMITS[@]}" | jq -R . | jq -s .)" \
-   '. + {($patch): {upstream: $tag, sourcePatch: $source, commits: $commits, created: $time}}' \
-   "$MANIFEST_PATH" > "$MANIFEST_PATH.tmp"
+echo "📦 Creating and switching to branch: ${BRANCH}"
+git checkout -b "$BRANCH"
 
-echo "✅ Manifest update succeeded"
-mv "$MANIFEST_PATH.tmp" "$MANIFEST_PATH"
+# Stage the generated dist patch
+echo "📦 Staging patch file: patches/${PATCH_FILENAME}"
+git add "patches/${PATCH_FILENAME}"
 
-# Step 5.5: Commit patch artifacts to utility repo
-if [ "$DRY_RUN" = false ]; then
-  echo "📦 Committing dist patch to branch: $BRANCH_NAME"
-  pushd "$PATCHES_REPO" > /dev/null
-  git checkout -b "$BRANCH_NAME"
-  git add "patches/$PATCH_NAME" "patches/$DIST_PATCH_NAME" "patches/manifest.json"
-  git commit -m "Add dist patch for Next.js $TAG with pr-71759++"
-  git tag -f "$TAG_NAME"
-  git push origin "$BRANCH_NAME"
-  git push origin "$TAG_NAME"
-  popd > /dev/null
+# Stage the manifest if it exists
+if [[ -f "$MANIFEST_PATH" ]]; then
+  echo "📦 Staging manifest: ${MANIFEST_PATH##*/}"
+  git add "$MANIFEST_PATH"
 else
-  echo "🧪 Dry-run: skipping commit and tag creation."
+  echo "ℹ️ No manifest found at ${MANIFEST_PATH}, skipping"
+fi
+
+echo "📦 Committing dist patch"
+git commit -q -m "chore: add dist patch for next ${STRIPPED_TAG}"
+
+# Push branch and tag to origin (unless dry-run)
+if [ "$DRY_RUN" = false ]; then
+  echo "📦 Pushing branch '${BRANCH}' to origin"
+  git push --set-upstream origin "${BRANCH}"
+  echo "📦 Tagging as '${TAG}' and pushing tag"
+  git tag -f "${TAG}"
+  git push origin "${TAG}"
+else
+  echo "🧪 Dry-run mode: skipping remote push"
 fi
 
 # Step 6: Prepare and publish NPM package
 if [ "$DRY_RUN" = false ]; then
-  echo "📦 Preparing NPM package for version: $TAG"
+  echo "📦 Preparing NPM package for version: ${TAG#v}"
   mkdir -p "$PACKAGE_DIR"
   cp "$DIST_PATCH_PATH" "$PACKAGE_DIR/dist.patch"
 
@@ -299,30 +398,27 @@ EOF
   PUBLISH_SUCCESS=false
   if npm publish --access public; then
     echo "✅ Patch published as @runderworld/next.js-patches@${TAG#v}"
-    echo "🏷️ Git tag created: $TAG_NAME"
+    echo "🏷️ Git tag created: ${TAG}"
     PUBLISH_SUCCESS=true
   else
     echo "🛑 NPM publish failed. Rolling back commit and tag..."
-
-    # Remove tag and branch from utility repo
-    git -C "$PATCHES_REPO" tag -d "$TAG_NAME" 2>/dev/null || true
+    git -C "$PATCHES_REPO" tag -d "${TAG}" 2>/dev/null || true
     CURRENT_BRANCH="$(git -C "$PATCHES_REPO" rev-parse --abbrev-ref HEAD)"
-    echo "🔁 Restoring utility repo to branch: $CURRENT_BRANCH"
     git -C "$PATCHES_REPO" checkout "$CURRENT_BRANCH"
-    git -C "$PATCHES_REPO" branch -D "$BRANCH_NAME" 2>/dev/null || true
+    git -C "$PATCHES_REPO" branch -D "${BRANCH}" 2>/dev/null || true
     git -C "$PATCHES_REPO" reset --hard HEAD~1
   fi
 
   popd > /dev/null
 
-  # Always clean up Next.js workspace
+  # Cleanup Next.js workspace
   echo "🧹 Cleaning up Next.js workspace..."
-  git -C "$NEXTJS_REPO" checkout upstream/canary > /dev/null 2>&1 || true
-  git -C "$NEXTJS_REPO" branch -D "$BRANCH_NAME" 2>/dev/null || true
+  git -C "$NEXTJS_REPO" checkout upstream/canary >/dev/null 2>&1 || true
+  git -C "$NEXTJS_REPO" branch -D "${BRANCH}" 2>/dev/null || true
   git -C "$NEXTJS_REPO" reset --hard
   git -C "$NEXTJS_REPO" clean -fd
 
-  # Always clean up package directory
+  # Cleanup package directory
   echo "🧹 Cleaning up package directory..."
   rm -rf "$PACKAGE_DIR"
 
