@@ -336,38 +336,36 @@ fi
 
 echo "✅ Reached end of patch generation block"
 
-# Step 5: Commit dist patch to a new branch and push
+# Step 5: Commit dist + source patches to a new branch and push
 STRIPPED_TAG="${TAG#v}"
 BRANCH="patch-v${STRIPPED_TAG}"
-PATCH_FILENAME=$(basename "$DIST_PATCH_PATH")
+PATCH_NAME="pr-71759++.patch"    # ← restore the source-patch filename here
+
+# Derive these from your existing DIST_PATCH_PATH and PATCH_NAME
+DIST_PATCH_NAME="$(basename "$DIST_PATCH_PATH")"   # e.g. dist-v15.6.0-canary.14-pr71759++.patch
 
 echo "📦 Creating and switching to branch: ${BRANCH}"
-git checkout -b "$BRANCH"
+git checkout -b "${BRANCH}"
 
-# Stage the generated dist patch
-echo "📦 Staging patch file: patches/${PATCH_FILENAME}"
-git add "patches/${PATCH_FILENAME}"
+echo "📦 Staging patches…"
+git add "patches/${DIST_PATCH_NAME}"
+git add "patches/${PATCH_NAME}"
 
-# Stage the manifest if it exists
 if [[ -f "$MANIFEST_PATH" ]]; then
   echo "📦 Staging manifest: ${MANIFEST_PATH##*/}"
   git add "$MANIFEST_PATH"
-else
-  echo "ℹ️ No manifest found at ${MANIFEST_PATH}, skipping"
 fi
 
-echo "📦 Committing dist patch"
-git commit -q -m "chore: add dist patch for next ${STRIPPED_TAG}"
+echo "📦 Committing patches"
+git commit -q -m "chore: add source & dist patches for next ${STRIPPED_TAG}"
 
-# Push branch and tag to origin (unless dry-run)
+# Push to remote
 if [ "$DRY_RUN" = false ]; then
-  echo "📦 Pushing branch '${BRANCH}' to origin"
   git push --set-upstream origin "${BRANCH}"
-  echo "📦 Tagging as '${TAG}' and pushing tag"
   git tag -f "${TAG}"
   git push origin "${TAG}"
 else
-  echo "🧪 Dry-run mode: skipping remote push"
+  echo "🧪 Dry-run: skipping push"
 fi
 
 # Step 6: Prepare and publish NPM package
