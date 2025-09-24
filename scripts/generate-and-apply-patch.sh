@@ -65,14 +65,15 @@ done
 # Prompt for upstream tag (and provide current canary version as default)
 DEFAULT_TAG="$(npm info next dist-tags.canary 2>/dev/null || echo '15.6.0-canary.10')"
 DEFAULT_TAG="v${DEFAULT_TAG#v}"  # ensure it starts with 'v'
+echo "ℹ️ next@latest:   $(npm info next dist-tags.latest 2>/dev/null || echo 'n/a')"
+echo "ℹ️ next@canary:   $(npm info next dist-tags.canary 2>/dev/null || echo 'n/a')"
+echo "ℹ️ @runderworld/next.js-patches@latest: $(npm info @runderworld/next.js-patches dist-tags.latest 2>/dev/null || echo 'n/a')"
 read -p "🔖 Enter Next.js tag to patch [default: $DEFAULT_TAG]: " TAG
 TAG="${TAG:-$DEFAULT_TAG}"
 [[ "$TAG" != v* ]] && TAG="v$TAG"
 BRANCH_NAME="patch-${TAG}"
 DIST_PATCH_NAME="dist-${TAG}-pr71759++.patch"
 DIST_PATCH_PATH="$PATCHES_REPO/patches/$DIST_PATCH_NAME"
-TAG_NAME="${TAG}" # ← updated: tag is now just "v15.5.2"
-TIMESTAMP="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
 
 if [ "$FORCE_REFRESH" = true ]; then
   echo "🔁 Force-refresh: removing existing Next.js workspace..."
@@ -194,16 +195,8 @@ else
 fi
 popd > /dev/null
 
-# ← PAUSE so you can manually inspect `.nextjs-fork/packages/next/dist`
-#echo
-#echo "🛑 Pausing here.  Inspect your dist dirs:"
-#echo "   ORIGINAL → $ORIGINAL_DIR"
-#echo "   LIVE     → $DIST_PATH"
-#echo
-#read -n1 -r -p "Press any key once you’ve poked around…"
-
 # ← now snapshot the rebuilt `dist` into `.dist-patched`
-echo "📸 Capturing patched snapshot…"
+echo "📸 Capturing patched snapshot..."
 
 # Step 3.6: Verify fingerprint before proceeding
 echo "🔐 Verifying fingerprint in dist output..."
@@ -217,7 +210,7 @@ else
 fi
 
 # Step 4: Generate dist patch with patch-package using a temp workspace
-echo "🧩 Generating dist patch with patch-package (generation uses v7.x)..."
+echo "🧩 Generating dist patch with patch-package..."
 
 PATCH_TEMP="$PATCHES_REPO/.patch-temp"
 mkdir -p "$PATCH_TEMP"
@@ -235,7 +228,7 @@ cat > package.json <<EOF
 EOF
 
 if ! npm install --silent; then
-  echo "🛑 Failed to install registry version of next"
+  echo "🛑 Failed to install registry version of Next.js"
   popd > /dev/null
   rm -rf "$PATCH_TEMP"
   exit 1
@@ -347,7 +340,7 @@ DIST_PATCH_NAME="$(basename "$DIST_PATCH_PATH")"   # e.g. dist-v15.6.0-canary.14
 echo "📦 Creating and switching to branch: ${BRANCH}"
 git checkout -b "${BRANCH}"
 
-echo "📦 Staging patches…"
+echo "📦 Staging patches..."
 git add "patches/${DIST_PATCH_NAME}"
 git add "patches/${PATCH_NAME}"
 
