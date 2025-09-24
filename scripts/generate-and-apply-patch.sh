@@ -48,10 +48,12 @@ while [[ $# -gt 0 ]]; do
     --dry-run) DRY_RUN=true ;;
     --force-refresh) FORCE_REFRESH=true ;;
     --clean-next) CLEAN_NEXT=true ;;
+    --tag=*) TAG="${1#*=}" ;;
     --help)
-      echo "Usage: ./generate-and-apply-patch.sh [--dry-run] [--force-refresh] [--clean-next]"
+      echo "Usage: ./generate-and-apply-patch.sh [--tag=VERSION] [--dry-run] [--force-refresh] [--clean-next]"
       echo ""
       echo "Options:"
+      echo "  --tag=VERSION    Specify Next.js version tag (e.g. v13.5.6)"
       echo "  --dry-run        Run without committing or publishing"
       echo "  --force-refresh  Delete and reclone Next.js workspace"
       echo "  --clean-next     Force clean rebuild of Next.js (dist + turbo cache)"
@@ -68,8 +70,12 @@ DEFAULT_TAG="v${DEFAULT_TAG#v}"  # ensure it starts with 'v'
 echo "ℹ️ next@latest:   $(npm info next dist-tags.latest 2>/dev/null || echo 'n/a')"
 echo "ℹ️ next@canary:   $(npm info next dist-tags.canary 2>/dev/null || echo 'n/a')"
 echo "ℹ️ @runderworld/next.js-patches@latest: $(npm info @runderworld/next.js-patches dist-tags.latest 2>/dev/null || echo 'n/a')"
-read -p "🔖 Enter Next.js tag to patch [default: $DEFAULT_TAG]: " TAG
-TAG="${TAG:-$DEFAULT_TAG}"
+if [[ -z "${TAG:-}" ]]; then
+  echo "🔖 No tag provided via --tag; using default: $DEFAULT_TAG"
+  TAG="$DEFAULT_TAG"
+else
+  echo "🔖 Using provided tag: $TAG"
+fi
 [[ "$TAG" != v* ]] && TAG="v$TAG"
 BRANCH_NAME="patch-${TAG}"
 DIST_PATCH_NAME="dist-${TAG}-pr71759++.patch"
