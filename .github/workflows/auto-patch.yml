@@ -2,8 +2,13 @@ name: Auto Patch Next.js Release
 
 on:
   schedule:
-    - cron: '0 * * * *'  # Runs every hour
-  workflow_dispatch:      # Allows manual trigger
+    - cron: '0 * * * *'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Next.js release tag to patch (e.g. v13.5.6)'
+        required: false
+        default: ''
 
 jobs:
   patch-nextjs:
@@ -19,16 +24,21 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v3
         with:
-          node-version: 18
+          node-version: 20
 
       - name: Install pnpm
         run: npm install -g pnpm
 
-      - name: Get latest Next.js release tag
+      - name: Determine tag to patch
         id: get_tag
         run: |
-          latest=$(curl -s https://api.github.com/repos/vercel/next.js/releases/latest | jq -r .tag_name)
-          echo "latest_tag=$latest" >> $GITHUB_OUTPUT
+          if [[ -n "${{ github.event.inputs.tag }}" ]]; then
+            echo "Using manually provided tag: ${{ github.event.inputs.tag }}"
+            echo "latest_tag=${{ github.event.inputs.tag }}" >> $GITHUB_OUTPUT
+          else
+            latest=$(curl -s https://api.github.com/repos/vercel/next.js/releases/latest | jq -r .tag_name)
+            echo "latest_tag=$latest" >> $GITHUB_OUTPUT
+          fi
 
       - name: Load last processed tag
         id: load_tag
