@@ -151,6 +151,10 @@ pushd "$NEXTJS_REPO" > /dev/null
 
 echo "📍 Creating patch-stack branch from upstream/canary"
 git branch -D patch-stack 2>/dev/null || true
+if ! git -C "$NEXTJS_REPO" rev-parse "$TAG" >/dev/null 2>&1; then
+  echo "🛑 Tag $TAG not found locally. Aborting."
+  exit 1
+fi
 git checkout -b patch-stack "$TAG"
 
 echo "🧵 Cherry-picking commits into patch-stack..."
