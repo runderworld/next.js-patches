@@ -93,8 +93,17 @@ if [ -d "$NEXTJS_REPO/.git" ]; then
   git fetch upstream "refs/tags/$TAG:refs/tags/$TAG" "+refs/heads/canary:refs/remotes/upstream/canary" --depth=1
   popd > /dev/null
 else
-  echo "🌐 Cloning Next.js fork into workspace..."
-  git clone git@github.com:runderworld/next.js.git "$NEXTJS_REPO"
+  if [[ "${GITHUB_ACTIONS:-}" == "true" ]]; then
+    echo "🌐 Cloning Next.js fork into workspace via HTTPS..."
+    NEXTJS_CLONE_URL="https://github.com/runderworld/next.js.git"
+  else
+    echo "🌐 Cloning Next.js fork into workspace via SSH..."
+    NEXTJS_CLONE_URL="git@github.com:runderworld/next.js.git"
+  fi
+  if ! git clone "$NEXTJS_CLONE_URL" "$NEXTJS_REPO"; then
+    echo "🛑 Failed to clone Next.js fork from $NEXTJS_CLONE_URL"
+    exit 1
+  fi
 fi
 
 # Ensures all three PR commits are available locally without triggering a massive packfile download
