@@ -48,12 +48,10 @@ while [[ $# -gt 0 ]]; do
     --dry-run) DRY_RUN=true ;;
     --force-refresh) FORCE_REFRESH=true ;;
     --clean-next) CLEAN_NEXT=true ;;
-    --tag=*) TAG="${1#*=}" ;;
     --help)
-      echo "Usage: ./generate-and-apply-patch.sh [--tag=VERSION] [--dry-run] [--force-refresh] [--clean-next]"
+      echo "Usage: ./generate-and-apply-patch.sh [--dry-run] [--force-refresh] [--clean-next]"
       echo ""
       echo "Options:"
-      echo "  --tag=VERSION    Specify Next.js version tag (e.g. v13.5.6)"
       echo "  --dry-run        Run without committing or publishing"
       echo "  --force-refresh  Delete and reclone Next.js workspace"
       echo "  --clean-next     Force clean rebuild of Next.js (dist + turbo cache)"
@@ -70,12 +68,8 @@ DEFAULT_TAG="v${DEFAULT_TAG#v}"  # ensure it starts with 'v'
 echo "ℹ️ next@latest:   $(npm info next dist-tags.latest 2>/dev/null || echo 'n/a')"
 echo "ℹ️ next@canary:   $(npm info next dist-tags.canary 2>/dev/null || echo 'n/a')"
 echo "ℹ️ @runderworld/next.js-patches@latest: $(npm info @runderworld/next.js-patches dist-tags.latest 2>/dev/null || echo 'n/a')"
-if [[ -z "${TAG:-}" ]]; then
-  echo "🔖 No tag provided via --tag; using default: $DEFAULT_TAG"
-  TAG="$DEFAULT_TAG"
-else
-  echo "🔖 Using provided tag: $TAG"
-fi
+read -p "🔖 Enter Next.js tag to patch [default: $DEFAULT_TAG]: " TAG
+TAG="${TAG:-$DEFAULT_TAG}"
 [[ "$TAG" != v* ]] && TAG="v$TAG"
 BRANCH_NAME="patch-${TAG}"
 DIST_PATCH_NAME="dist-${TAG}-pr71759++.patch"
@@ -93,17 +87,8 @@ if [ -d "$NEXTJS_REPO/.git" ]; then
   git fetch upstream "refs/tags/$TAG:refs/tags/$TAG" "+refs/heads/canary:refs/remotes/upstream/canary" --depth=1
   popd > /dev/null
 else
-  if [[ "${GITHUB_ACTIONS:-}" == "true" ]]; then
-    echo "🌐 Cloning Next.js fork into workspace via HTTPS..."
-    NEXTJS_CLONE_URL="https://github.com/runderworld/next.js.git"
-  else
-    echo "🌐 Cloning Next.js fork into workspace via SSH..."
-    NEXTJS_CLONE_URL="git@github.com:runderworld/next.js.git"
-  fi
-  if ! git clone "$NEXTJS_CLONE_URL" "$NEXTJS_REPO"; then
-    echo "🛑 Failed to clone Next.js fork from $NEXTJS_CLONE_URL"
-    exit 1
-  fi
+  echo "🌐 Cloning Next.js fork into workspace..."
+  git clone git@github.com:runderworld/next.js.git "$NEXTJS_REPO"
 fi
 
 # Ensures all three PR commits are available locally without triggering a massive packfile download
@@ -151,10 +136,6 @@ pushd "$NEXTJS_REPO" > /dev/null
 
 echo "📍 Creating patch-stack branch from upstream/canary"
 git branch -D patch-stack 2>/dev/null || true
-if ! git -C "$NEXTJS_REPO" rev-parse "$TAG" >/dev/null 2>&1; then
-  echo "🛑 Tag $TAG not found locally. Aborting."
-  exit 1
-fi
 git checkout -b patch-stack "$TAG"
 
 echo "🧵 Cherry-picking commits into patch-stack..."
