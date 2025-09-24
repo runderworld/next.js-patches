@@ -306,9 +306,9 @@ if ! git commit -q -m "patched dist files"; then
   exit 1
 fi
 
-# Step 4(e): Run patch-package@7 to generate patch in v7 format
-if ! npx patch-package@^7 next --patch-dir "../patches"; then
-  echo "🛑 patch-package v7 failed"
+# Step 4(e): Run forked patch-package@8 to generate patch in v8 format
+if ! npx @unts/patch-package@^8 next --patch-dir "../patches"; then
+  echo "🛑 @unts/patch-package v8 failed"
   popd > /dev/null
   rm -rf "$PATCH_TEMP"
   exit 1
