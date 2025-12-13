@@ -21,7 +21,15 @@ DEFAULT_TAG="v15.5.1-canary.27"
 read -rp "📦 Enter Next.js tag to publish [default: $DEFAULT_TAG]: " TAG
 TAG="${TAG:-$DEFAULT_TAG}"
 VERSION="${TAG#v}"
-PATCH_FILE="$PATCHES_DIR/next+${VERSION}.patch"
+PATCH_FILE="$PATCHES_DIR/dist-${TAG}-pr71759++.patch"
+
+# Validate branch
+EXPECTED_BRANCH="patch-${TAG}"
+CURRENT_BRANCH="$(git rev-parse --abbrev-ref HEAD)"
+if [ "$CURRENT_BRANCH" != "$EXPECTED_BRANCH" ]; then
+  echo "❌ Expected branch '$EXPECTED_BRANCH' but currently on '$CURRENT_BRANCH'" >&2
+  exit 1
+fi
 
 # Validate patch file
 if [ ! -f "$PATCH_FILE" ]; then
