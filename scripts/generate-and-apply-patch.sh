@@ -387,6 +387,14 @@ EOF
   pushd "$PACKAGE_DIR" > /dev/null
 
   PUBLISH_SUCCESS=false
+
+  # Check npm auth before publishing
+  if ! npm whoami >/dev/null 2>&1; then
+    echo "❌ Not logged in to npm. Run 'npm login' first." >&2
+    popd > /dev/null
+    exit 1
+  fi
+
   if npm publish --access public; then
     echo "✅ Patch published as @runderworld/next.js-patches@${TAG#v}"
     echo "🏷️ Git tag created: ${TAG}"

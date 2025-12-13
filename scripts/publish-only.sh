@@ -62,6 +62,14 @@ EOF
 # Publish to npm
 echo "🚀 Publishing @runderworld/next.js-patches@$VERSION to npm..."
 pushd "$PACKAGE_DIR" >/dev/null
+
+# Verify npm auth before publishing
+if ! npm whoami >/dev/null 2>&1; then
+  echo "❌ Not logged in to npm. Run 'npm login' first." >&2
+  exit 1
+fi
+
+# We're now ready to publish
 if npm publish --access public; then
   echo "✅ Published successfully."
 else
