@@ -18,25 +18,99 @@ PATCHES_REPO="$REPO_ROOT"
 NEXTJS_REPO="$REPO_ROOT/.nextjs-fork"
 PACKAGE_DIR="$PATCHES_REPO/package"
 
-# Patch metadata
-PATCH_NAME="pr-71759++.patch"
-PATCH_FILE="$PATCHES_REPO/patches/$PATCH_NAME"
+# Patch metadata (shared)
 MANIFEST_PATH="patches/manifest.json"
 FINGERPRINT_TOKEN="runderworld.node.options.patch"
 
-# Commits to include in pr-71759++ patch.
-# NOTE: These commits should remain AT THE TOP of
-# branch 'patch-pr71759++' in order for this to work.
-PR_COMMITS=(
+# ── v15 vs v16 patch configuration ──────────────────────────────────────────
+# Resolved after TAG is known (see resolve_patch_config below).
+# These variables are set by resolve_patch_config():
+#   SRC_PATCH_NAME   – source patch filename  (e.g. pr-71759++.patch)
+#   PR_COMMITS       – array of commit hashes to cherry-pick
+#   PR_BRANCH        – origin branch that contains the commits
+#   PATCHED_FILES    – dist files affected by the patch
+
+# v15.x: three cherry-picked commits from PR #71759
+PR_COMMITS_V15=(
   # Original PR commit from Martin Madsen (factbird)
   fda4d5b1516490cea76650a80c8ecaac58f30c74
-
   # Follow-up commit from same contributor
   020f58dbef9bfe5e57b62e56870194fe62e02983
-
-  # Local fix authored by you (runderworld)
+  # Local fix authored by runderworld
   f80235400f160c4d1278ed3e336083c5c5d66a2a
 )
+
+# v16.x: single commit from PR #89968
+PR_COMMITS_V16=(
+  d74d4aa71dcd15199101fa42a967079abc27a348
+)
+
+resolve_patch_config() {
+  local tag="$1"
+  local major
+  major="$(echo "${tag#v}" | cut -d. -f1)"
+
+  # Shared dist files affected by both patches
+  local shared_files=(
+    node_modules/next/dist/cli/next-dev.js
+    node_modules/next/dist/cli/next-dev.js.map
+    node_modules/next/dist/esm/lib/worker.js
+    node_modules/next/dist/esm/lib/worker.js.map
+    node_modules/next/dist/esm/server/lib/utils.js
+    node_modules/next/dist/esm/server/lib/utils.js.map
+    node_modules/next/dist/lib/worker.js
+    node_modules/next/dist/lib/worker.js.map
+    node_modules/next/dist/server/lib/utils.d.ts
+    node_modules/next/dist/server/lib/utils.js
+    node_modules/next/dist/server/lib/utils.js.map
+  )
+
+  case "$major" in
+    15)
+      SRC_PATCH_NAME="pr-71759++.patch"
+      PR_COMMITS=("${PR_COMMITS_V15[@]}")
+      PR_BRANCH="patch-pr71759++"
+      # v15.x bundles utils into compiled runtime bundles
+      PATCHED_FILES=(
+        "${shared_files[@]}"
+        node_modules/next/dist/compiled/next-server/app-page-experimental.runtime.dev.js
+        node_modules/next/dist/compiled/next-server/app-page-experimental.runtime.dev.js.map
+        node_modules/next/dist/compiled/next-server/app-page-turbo-experimental.runtime.dev.js
+        node_modules/next/dist/compiled/next-server/app-page-turbo-experimental.runtime.dev.js.map
+        node_modules/next/dist/compiled/next-server/app-page-turbo.runtime.dev.js
+        node_modules/next/dist/compiled/next-server/app-page-turbo.runtime.dev.js.map
+        node_modules/next/dist/compiled/next-server/app-page.runtime.dev.js
+        node_modules/next/dist/compiled/next-server/app-page.runtime.dev.js.map
+        node_modules/next/dist/compiled/next-server/pages-api-turbo.runtime.dev.js
+        node_modules/next/dist/compiled/next-server/pages-api-turbo.runtime.dev.js.map
+        node_modules/next/dist/compiled/next-server/pages-api.runtime.dev.js
+        node_modules/next/dist/compiled/next-server/pages-api.runtime.dev.js.map
+        node_modules/next/dist/compiled/next-server/pages-turbo.runtime.dev.js
+        node_modules/next/dist/compiled/next-server/pages-turbo.runtime.dev.js.map
+        node_modules/next/dist/compiled/next-server/pages.runtime.dev.js
+        node_modules/next/dist/compiled/next-server/pages.runtime.dev.js.map
+      )
+      ;;
+    16)
+      SRC_PATCH_NAME="pr-89968.patch"
+      PR_COMMITS=("${PR_COMMITS_V16[@]}")
+      PR_BRANCH="fix/node-options-v16"
+      # v16.x does not bundle utils into compiled runtimes
+      PATCHED_FILES=("${shared_files[@]}")
+      ;;
+    *)
+      echo "🛑 Unsupported major version: $major (tag: $tag)"
+      echo "   Only v15.x and v16.x are supported."
+      exit 1
+      ;;
+  esac
+
+  PATCH_FILE="$PATCHES_REPO/patches/$SRC_PATCH_NAME"
+  echo "📋 Resolved patch config for v${major}.x:"
+  echo "   Source patch:  $SRC_PATCH_NAME"
+  echo "   PR branch:    $PR_BRANCH"
+  echo "   Commits:      ${#PR_COMMITS[@]}"
+}
 
 # Parse flags
 DRY_RUN=false
@@ -63,7 +137,7 @@ while [[ $# -gt 0 ]]; do
 done
 
 # Prompt for upstream tag (and provide current canary version as default)
-DEFAULT_TAG="$(npm info next dist-tags.canary 2>/dev/null || echo '15.6.0-canary.10')"
+DEFAULT_TAG="$(npm info next dist-tags.canary 2>/dev/null || echo '16.2.0-canary.42')"
 DEFAULT_TAG="v${DEFAULT_TAG#v}"  # ensure it starts with 'v'
 echo "ℹ️ next@latest:   $(npm info next dist-tags.latest 2>/dev/null || echo 'n/a')"
 echo "ℹ️ next@canary:   $(npm info next dist-tags.canary 2>/dev/null || echo 'n/a')"
@@ -71,8 +145,14 @@ echo "ℹ️ @runderworld/next.js-patches@latest: $(npm info @runderworld/next.j
 read -p "🔖 Enter Next.js tag to patch [default: $DEFAULT_TAG]: " TAG
 TAG="${TAG:-$DEFAULT_TAG}"
 [[ "$TAG" != v* ]] && TAG="v$TAG"
+
+# Resolve v15/v16 patch config based on tag
+resolve_patch_config "$TAG"
+
 BRANCH_NAME="patch-${TAG}"
-DIST_PATCH_NAME="dist-${TAG}-pr71759++.patch"
+# Derive dist patch name from source patch (e.g. pr-71759++.patch → pr71759++, pr-89968.patch → pr89968)
+PATCH_LABEL="$(basename "$SRC_PATCH_NAME" .patch | tr -d '-')"
+DIST_PATCH_NAME="dist-${TAG}-${PATCH_LABEL}.patch"
 DIST_PATCH_PATH="$PATCHES_REPO/patches/$DIST_PATCH_NAME"
 
 if [ "$FORCE_REFRESH" = true ]; then
@@ -83,7 +163,7 @@ fi
 if [ -d "$NEXTJS_REPO/.git" ]; then
   echo "🔄 Reusing existing Next.js workspace..."
   pushd "$NEXTJS_REPO" > /dev/null
-  git fetch origin patch-pr71759++ --update-head-ok
+  git fetch origin "$PR_BRANCH" --update-head-ok
   git fetch upstream "refs/tags/$TAG:refs/tags/$TAG" "+refs/heads/canary:refs/remotes/upstream/canary" --depth=1
   popd > /dev/null
 else
@@ -92,8 +172,8 @@ else
 fi
 
 # Ensures all three PR commits are available locally without triggering a massive packfile download
-echo "🌐 Fetching branch on origin that contains all PR commits (patch-pr71759++)..."
-git -C "$NEXTJS_REPO" fetch origin patch-pr71759++
+echo "🌐 Fetching branch on origin that contains all PR commits ($PR_BRANCH)..."
+git -C "$NEXTJS_REPO" fetch origin "$PR_BRANCH"
 
 echo "🔍 Validating presence of expected PR commits in fetched branch..."
 for commit in "${PR_COMMITS[@]}"; do
@@ -144,7 +224,7 @@ for commit in "${PR_COMMITS[@]}"; do
 done
 
 NUM_COMMITS="${#PR_COMMITS[@]}"
-echo "📦 Generating consolidated patch from $NUM_COMMITS commits: $PATCH_NAME"
+echo "📦 Generating consolidated patch from $NUM_COMMITS commits: $SRC_PATCH_NAME"
 mkdir -p "$PATCHES_REPO/patches"
 git format-patch -"$NUM_COMMITS" --stdout > "$PATCH_FILE"
 
@@ -176,7 +256,7 @@ if [[ ! -d "$DIST_PATH" ]]; then
 fi
 
 # Step 3.5: Apply patch and rebuild
-echo "🧵 Applying patch with git am: $PATCH_NAME"
+echo "🧵 Applying patch with git am: $SRC_PATCH_NAME"
 git am "$PATCH_FILE"
 
 if [ "$CLEAN_NEXT" = true ]; then
@@ -251,35 +331,7 @@ ls node_modules/next/dist/compiled/next-server/pages.runtime.dev.js \
 # Step 4(d): Unstage everything and stage only the affected files
 git reset
 
-PATCHED_FILES=(
-  node_modules/next/dist/cli/next-dev.js
-  node_modules/next/dist/cli/next-dev.js.map
-  node_modules/next/dist/compiled/next-server/app-page-experimental.runtime.dev.js
-  node_modules/next/dist/compiled/next-server/app-page-experimental.runtime.dev.js.map
-  node_modules/next/dist/compiled/next-server/app-page-turbo-experimental.runtime.dev.js
-  node_modules/next/dist/compiled/next-server/app-page-turbo-experimental.runtime.dev.js.map
-  node_modules/next/dist/compiled/next-server/app-page-turbo.runtime.dev.js
-  node_modules/next/dist/compiled/next-server/app-page-turbo.runtime.dev.js.map
-  node_modules/next/dist/compiled/next-server/app-page.runtime.dev.js
-  node_modules/next/dist/compiled/next-server/app-page.runtime.dev.js.map
-  node_modules/next/dist/compiled/next-server/pages-api-turbo.runtime.dev.js
-  node_modules/next/dist/compiled/next-server/pages-api-turbo.runtime.dev.js.map
-  node_modules/next/dist/compiled/next-server/pages-api.runtime.dev.js
-  node_modules/next/dist/compiled/next-server/pages-api.runtime.dev.js.map
-  node_modules/next/dist/compiled/next-server/pages-turbo.runtime.dev.js
-  node_modules/next/dist/compiled/next-server/pages-turbo.runtime.dev.js.map
-  node_modules/next/dist/compiled/next-server/pages.runtime.dev.js
-  node_modules/next/dist/compiled/next-server/pages.runtime.dev.js.map
-  node_modules/next/dist/esm/lib/worker.js
-  node_modules/next/dist/esm/lib/worker.js.map
-  node_modules/next/dist/esm/server/lib/utils.js
-  node_modules/next/dist/esm/server/lib/utils.js.map
-  node_modules/next/dist/lib/worker.js
-  node_modules/next/dist/lib/worker.js.map
-  node_modules/next/dist/server/lib/utils.d.ts
-  node_modules/next/dist/server/lib/utils.js
-  node_modules/next/dist/server/lib/utils.js.map
-)
+# PATCHED_FILES is set by resolve_patch_config()
 
 for file in "${PATCHED_FILES[@]}"; do
   if [[ -f "$file" ]]; then
@@ -329,12 +381,28 @@ fi
 
 echo "✅ Reached end of patch generation block"
 
+# Pre-flight: verify npm auth now (before any git commits/tags/pushes)
+# npm login tokens expire quickly, so we check right before the point of no return.
+if [ "$DRY_RUN" = false ]; then
+  echo "🔐 Verifying npm auth..."
+  if ! npm whoami >/dev/null 2>&1; then
+    echo "❌ Not logged in to npm. Run 'npm login' first." >&2
+    echo "   (The dist patch is saved at: $DIST_PATCH_PATH)"
+    echo "🧹 Cleaning up Next.js workspace..."
+    git -C "$NEXTJS_REPO" checkout upstream/canary >/dev/null 2>&1 || true
+    git -C "$NEXTJS_REPO" branch -D "$BRANCH_NAME" 2>/dev/null || true
+    git -C "$NEXTJS_REPO" reset --hard
+    git -C "$NEXTJS_REPO" clean -fd
+    exit 1
+  fi
+  echo "✅ Logged in as: $(npm whoami)"
+fi
+
 # Step 5: Commit dist + source patches to a new branch and push
 STRIPPED_TAG="${TAG#v}"
 BRANCH="patch-v${STRIPPED_TAG}"
-PATCH_NAME="pr-71759++.patch"    # ← restore the source-patch filename here
 
-# Derive these from your existing DIST_PATCH_PATH and PATCH_NAME
+# Derive these from your existing DIST_PATCH_PATH and SRC_PATCH_NAME
 DIST_PATCH_NAME="$(basename "$DIST_PATCH_PATH")"   # e.g. dist-v15.6.0-canary.14-pr71759++.patch
 
 echo "📦 Creating and switching to branch: ${BRANCH}"
@@ -342,7 +410,7 @@ git checkout -b "${BRANCH}"
 
 echo "📦 Staging patches..."
 git add "patches/${DIST_PATCH_NAME}"
-git add "patches/${PATCH_NAME}"
+git add "patches/${SRC_PATCH_NAME}"
 
 if [[ -f "$MANIFEST_PATH" ]]; then
   echo "📦 Staging manifest: ${MANIFEST_PATH##*/}"
@@ -371,7 +439,7 @@ if [ "$DRY_RUN" = false ]; then
 {
   "name": "@runderworld/next.js-patches",
   "version": "${TAG#v}",
-  "description": "Dist patch overlay for Next.js ${TAG} with PR #71759++",
+  "description": "Dist patch overlay for Next.js ${TAG} with ${SRC_PATCH_NAME%.patch}",
   "main": "dist.patch",
   "files": ["dist.patch"],
   "keywords": ["next.js", "patch", "dist", "overlay", "enterprise"],
@@ -387,13 +455,6 @@ EOF
   pushd "$PACKAGE_DIR" > /dev/null
 
   PUBLISH_SUCCESS=false
-
-  # Check npm auth before publishing
-  if ! npm whoami >/dev/null 2>&1; then
-    echo "❌ Not logged in to npm. Run 'npm login' first." >&2
-    popd > /dev/null
-    exit 1
-  fi
 
   if npm publish --access public; then
     echo "✅ Patch published as @runderworld/next.js-patches@${TAG#v}"

@@ -1,0 +1,541 @@
+From d74d4aa71dcd15199101fa42a967079abc27a348 Mon Sep 17 00:00:00 2001
+From: Ryan Underwood <runderworld@gmail.com>
+Date: Fri, 13 Feb 2026 11:26:00 -0800
+Subject: [PATCH] fix: correct parseNodeArgs and formatNodeOptions processing
+ of NODE_OPTIONS
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Fixes #77550 — Port of PR #71759 to v16.x (canary).
+
+The core issue: parseNodeArgs used node:util parseArgs which strips dash
+prefixes and deduplicates keys. When NODE_OPTIONS contains repeated short
+options like '-r file1.js -r file2.js', the old code lost values and
+formatNodeOptions forced '--' prefix on everything (turning '-r' into
+'--r=', which is invalid in NODE_OPTIONS).
+
+Changes:
+- parseNodeArgs now uses token.rawName to preserve '-' vs '--' prefixes
+  and stores values as arrays to support repeated options
+- Introduced NodeOptions class wrapping the parsed result with get/set/
+  delete/has/clone/raw helpers for clean caller interaction
+- formatNodeOptions updated to handle array values and use the correct
+  separator ('=' for long options, ' ' for short options)
+- Updated callers in next-dev.ts and worker.ts to use NodeOptions methods
+- Added tests for repeated -r/--require options (short and long forms),
+  short option formatting, repeated option formatting, and boolean options
+- Applied Graphite bot suggestion: filter(Boolean) before join in inner
+  map to avoid extra spaces from null values
+---
+ packages/next/src/cli/next-dev.ts          |  20 +-
+ packages/next/src/lib/worker.ts            |  18 +-
+ packages/next/src/server/lib/utils.test.ts |  70 ++++++-
+ packages/next/src/server/lib/utils.ts      | 217 ++++++++++++++-------
+ 4 files changed, 232 insertions(+), 93 deletions(-)
+
+diff --git a/packages/next/src/cli/next-dev.ts b/packages/next/src/cli/next-dev.ts
+index fae76cb4e0..4018b32c26 100644
+--- a/packages/next/src/cli/next-dev.ts
++++ b/packages/next/src/cli/next-dev.ts
+@@ -293,34 +293,34 @@ const nextDev = async (
+         const totalMemInMB = Math.floor(totalMem / 1024 / 1024)
+         maxOldSpaceSize = Math.floor(totalMemInMB * 0.5).toString()
+ 
+-        nodeOptions['max-old-space-size'] = maxOldSpaceSize
++        nodeOptions.set('max-old-space-size', maxOldSpaceSize)
+ 
+         // Ensure the max_old_space_size is not also set.
+-        delete nodeOptions['max_old_space_size']
++        nodeOptions.delete('max_old_space_size')
+       }
+ 
+       if (options.disableSourceMaps) {
+-        delete nodeOptions['enable-source-maps']
++        nodeOptions.delete('enable-source-maps')
+       } else {
+-        nodeOptions['enable-source-maps'] = true
++        nodeOptions.set('enable-source-maps', true)
+       }
+ 
+       const nodeDebugType = getNodeDebugType(nodeOptions)
+       const originalAddress =
+-        nodeDebugType === undefined ? undefined : nodeOptions[nodeDebugType]
+-      delete nodeOptions.inspect
+-      delete nodeOptions['inspect-brk']
+-      delete nodeOptions['inspect_brk']
++        nodeDebugType === undefined ? undefined : nodeOptions.get(nodeDebugType)
++      nodeOptions.delete('inspect')
++      nodeOptions.delete('inspect-brk')
++      nodeOptions.delete('inspect_brk')
+       if (nodeDebugType !== undefined) {
+         const address = getParsedDebugAddress(originalAddress)
+         address.port = address.port === 0 ? 0 : address.port + 1
+-        nodeOptions[nodeDebugType] = formatDebugAddress(address)
++        nodeOptions.set(nodeDebugType, formatDebugAddress(address))
+       } else if (options.inspect) {
+         const address: DebugAddress =
+           options.inspect === true
+             ? getParsedDebugAddress(true)
+             : options.inspect
+-        nodeOptions.inspect = formatDebugAddress(address)
++        nodeOptions.set('inspect', formatDebugAddress(address))
+       }
+ 
+       child = fork(startServerPath, {
+diff --git a/packages/next/src/lib/worker.ts b/packages/next/src/lib/worker.ts
+index fe405934ff..e2d76d9819 100644
+--- a/packages/next/src/lib/worker.ts
++++ b/packages/next/src/lib/worker.ts
+@@ -88,15 +88,15 @@ export class Worker {
+     })
+ 
+     const nodeOptions = getParsedNodeOptions()
+-    const originalOptions = { ...nodeOptions }
+-    delete nodeOptions.inspect
+-    delete nodeOptions['inspect-brk']
+-    delete nodeOptions['inspect_brk']
++    const originalOptions = nodeOptions.clone()
++    nodeOptions.delete('inspect')
++    nodeOptions.delete('inspect-brk')
++    nodeOptions.delete('inspect_brk')
+     if (debuggerPortOffset !== -1) {
+       const nodeDebugType = getNodeDebugType(originalOptions)
+       if (nodeDebugType) {
+         const debuggerAddress = getParsedDebugAddress(
+-          originalOptions[nodeDebugType]
++          originalOptions.get(nodeDebugType)
+         )
+         const address: DebugAddress = {
+           host: debuggerAddress.host,
+@@ -106,17 +106,17 @@ export class Worker {
+               ? 0
+               : debuggerAddress.port + 1 + debuggerPortOffset,
+         }
+-        nodeOptions[nodeDebugType] = formatDebugAddress(address)
++        nodeOptions.set(nodeDebugType, formatDebugAddress(address))
+       }
+     }
+ 
+     if (enableSourceMaps) {
+-      nodeOptions['enable-source-maps'] = true
++      nodeOptions.set('enable-source-maps', true)
+     }
+ 
+     if (isolatedMemory) {
+-      delete nodeOptions['max-old-space-size']
+-      delete nodeOptions['max_old_space_size']
++      nodeOptions.delete('max-old-space-size')
++      nodeOptions.delete('max_old_space_size')
+     }
+ 
+     const createWorker = () => {
+diff --git a/packages/next/src/server/lib/utils.test.ts b/packages/next/src/server/lib/utils.test.ts
+index cac551cd3b..c57cdbb27a 100644
+--- a/packages/next/src/server/lib/utils.test.ts
++++ b/packages/next/src/server/lib/utils.test.ts
+@@ -4,6 +4,7 @@ import {
+   formatNodeOptions,
+   tokenizeArgs,
+   getParsedNodeOptions,
++  NodeOptions,
+ } from './utils'
+ 
+ const originalNodeOptions = process.env.NODE_OPTIONS
+@@ -42,30 +43,63 @@ describe('tokenizeArgs', () => {
+ 
+ describe('formatNodeOptions', () => {
+   it('wraps values with spaces in quotes', () => {
+-    const result = formatNodeOptions({
+-      spaces: 'thing with spaces',
+-      spacesAndQuotes: 'thing with "spaces"',
+-      normal: '1234',
+-    })
++    const result = formatNodeOptions(
++      new NodeOptions({
++        '--spaces': ['thing with spaces'],
++        '--spacesAndQuotes': ['thing with "spaces"'],
++        '--normal': ['1234'],
++      })
++    )
+ 
+     expect(result).toBe(
+       '--spaces="thing with spaces" --spacesAndQuotes="thing with \\"spaces\\"" --normal=1234'
+     )
+   })
++
++  it('formats short options with a space separator', () => {
++    const result = formatNodeOptions(
++      new NodeOptions({
++        '-r': ['./file.js'],
++      })
++    )
++
++    expect(result).toBe('-r ./file.js')
++  })
++
++  it('formats repeated options', () => {
++    const result = formatNodeOptions(
++      new NodeOptions({
++        '-r': ['./a.js', './b.js'],
++      })
++    )
++
++    expect(result).toBe('-r ./a.js -r ./b.js')
++  })
++
++  it('formats boolean options', () => {
++    const result = formatNodeOptions(
++      new NodeOptions({
++        '--inspect': [true],
++        '--other': [true],
++      })
++    )
++
++    expect(result).toBe('--inspect --other')
++  })
+ })
+ 
+ describe('getParsedDebugAddress', () => {
+   it('supports the flag with an equal sign', () => {
+     process.env.NODE_OPTIONS = '--inspect=1234'
+     const nodeOptions = getParsedNodeOptions()
+-    const result = getParsedDebugAddress(nodeOptions.inspect)
++    const result = getParsedDebugAddress(nodeOptions.get('inspect'))
+     expect(result).toEqual({ host: undefined, port: 1234 })
+   })
+ 
+   it('supports the flag without an equal sign', () => {
+     process.env.NODE_OPTIONS = '--inspect 1234'
+     const nodeOptions = getParsedNodeOptions()
+-    const result = getParsedDebugAddress(nodeOptions.inspect)
++    const result = getParsedDebugAddress(nodeOptions.get('inspect'))
+     expect(result).toEqual({ host: undefined, port: 1234 })
+   })
+ })
+@@ -105,6 +139,28 @@ describe('getFormattedNodeOptionsWithoutInspect', () => {
+     )
+   })
+ 
++  describe('preserves options and assume the following positional to be the value', () => {
++    it('short', () => {
++      process.env.NODE_OPTIONS =
++        '-r ./first-file-to-require-with-node-require-option.js -r ./second-file-to-require-with-node-require-option.js'
++      const result = getFormattedNodeOptionsWithoutInspect()
++
++      expect(result).toBe(
++        '-r ./first-file-to-require-with-node-require-option.js -r ./second-file-to-require-with-node-require-option.js'
++      )
++    })
++
++    it('long', () => {
++      process.env.NODE_OPTIONS =
++        '--require ./first-file-to-require-with-node-require-option.js --require ./second-file-to-require-with-node-require-option.js'
++      const result = getFormattedNodeOptionsWithoutInspect()
++
++      expect(result).toBe(
++        '--require=./first-file-to-require-with-node-require-option.js --require=./second-file-to-require-with-node-require-option.js'
++      )
++    })
++  })
++
+   it('removes --inspect option with parameters', () => {
+     process.env.NODE_OPTIONS = '--other --inspect=0.0.0.0:1234 --additional'
+     const result = getFormattedNodeOptionsWithoutInspect()
+diff --git a/packages/next/src/server/lib/utils.ts b/packages/next/src/server/lib/utils.ts
+index 189a025e30..5e13e67cb1 100644
+--- a/packages/next/src/server/lib/utils.ts
++++ b/packages/next/src/server/lib/utils.ts
+@@ -11,51 +11,132 @@ export function printAndExit(message: string, code = 1) {
+   return process.exit(code)
+ }
+ 
+-export type NodeOptions = Record<string, string | boolean | undefined>
++/**
++ * Parsed representation of NODE_OPTIONS that preserves the original dash
++ * prefix (`-` vs `--`) via `rawName` keys and supports repeated options
++ * (e.g. `-r a.js -r b.js`) by storing values in arrays.
++ */
++export type NodeOptionValues = Record<string, Array<string | boolean>>
++
++/**
++ * A mutable wrapper around parsed NODE_OPTIONS.
++ *
++ * Internally options are keyed by their *rawName* (e.g. `"--require"`, `"-r"`)
++ * and each key maps to an array of values so that repeated options like
++ * `-r a.js -r b.js` are preserved.
++ *
++ * The helper methods accept a *bare* name (e.g. `"inspect"`) and will match
++ * any rawName variant (`"--inspect"`, `"-inspect"`, etc.).  When *setting* a
++ * value the long-form `"--<name>"` is used by default.
++ */
++export class NodeOptions {
++  private data: NodeOptionValues
++
++  constructor(data: NodeOptionValues = {}) {
++    this.data = { ...data }
++  }
++
++  /** Return the *first* value for the given bare option name, or `undefined`. */
++  get(name: string): string | boolean | undefined {
++    const key = this.findKey(name)
++    return key ? this.data[key]?.[0] : undefined
++  }
++
++  /** Return *all* values for the given bare option name. */
++  getAll(name: string): Array<string | boolean> | undefined {
++    const key = this.findKey(name)
++    return key ? this.data[key] : undefined
++  }
++
++  /** Return whether an option with the given bare name exists. */
++  has(name: string): boolean {
++    return this.findKey(name) !== undefined
++  }
++
++  /**
++   * Set (or replace) a single value for the given bare option name.
++   * Uses the long-form `"--<name>"` key.
++   */
++  set(name: string, value: string | boolean): void {
++    const key = this.findKey(name) ?? `--${name}`
++    this.data[key] = [value]
++  }
++
++  /** Delete all values for the given bare option name. */
++  delete(name: string): void {
++    const key = this.findKey(name)
++    if (key) delete this.data[key]
++  }
++
++  /** Return the underlying raw data (for serialization / iteration). */
++  raw(): NodeOptionValues {
++    return this.data
++  }
++
++  /** Shallow-clone this instance. */
++  clone(): NodeOptions {
++    const cloned: NodeOptionValues = {}
++    for (const [k, v] of Object.entries(this.data)) {
++      cloned[k] = [...v]
++    }
++    return new NodeOptions(cloned)
++  }
++
++  // ── private ──────────────────────────────────────────────────────────
++
++  /** Find the rawName key that matches a bare name (e.g. "inspect" → "--inspect"). */
++  private findKey(name: string): string | undefined {
++    // Fast path: try long-form first, then short single-dash.
++    if (`--${name}` in this.data) return `--${name}`
++    if (`-${name}` in this.data) return `-${name}`
++    // Exhaustive fallback – handles edge cases.
++    for (const key of Object.keys(this.data)) {
++      if (key.replace(/^-{1,2}/, '') === name) return key
++    }
++    return undefined
++  }
++}
++
++/** @internal Build-time fingerprint for patch verification. */
++enum PatchFlags {
++  RunderworldNodeOptions = 'runderworld.node.options.patch'
++}
+ 
+ const parseNodeArgs = (args: string[]): NodeOptions => {
+-  const { values, tokens } = parseArgs({ args, strict: false, tokens: true })
++  const { tokens } = parseArgs({ args, strict: false, tokens: true })
++
++  const parsedValues: NodeOptionValues = {}
+ 
+   // For the `NODE_OPTIONS`, we support arguments with values without the `=`
+   // sign. We need to parse them manually.
+-  let orphan = null
+   for (let i = 0; i < tokens.length; i++) {
+-    const token = tokens[i]
++    const left = tokens[i]
++    const right = tokens[i + 1]
+ 
+-    if (token.kind === 'option-terminator') {
++    if (left.kind === 'option-terminator') {
+       break
+     }
+ 
+-    // When we encounter an option, if it's value is undefined, we should check
+-    // to see if the following tokens are positional parameters. If they are,
+-    // then the option is orphaned, and we can assign it.
+-    if (token.kind === 'option') {
+-      orphan = typeof token.value === 'undefined' ? token : null
++    if (left.kind === 'positional') {
+       continue
+     }
+ 
+-    // If the token isn't a positional one, then we can't assign it to the found
+-    // orphaned option.
+-    if (token.kind !== 'positional') {
+-      orphan = null
+-      continue
+-    }
+-
+-    // If we don't have an orphan, then we can skip this token.
+-    if (!orphan) {
+-      continue
+-    }
+-
+-    // If the token is a positional one, and it has a value, so add it to the
+-    // values object. If it already exists, append it with a space.
+-    if (orphan.name in values && typeof values[orphan.name] === 'string') {
+-      values[orphan.name] += ` ${token.value}`
+-    } else {
+-      values[orphan.name] = token.value
++    parsedValues[left.rawName] ||= []
++
++    // Once we identify an option, there can be an optional value, either passed
++    // explicitly to it, `--token=value` or as the following positional token,
++    // i.e. `--token value`
++    if (left.kind === 'option') {
++      if (right?.kind === 'positional') {
++        parsedValues[left.rawName].push(right.value)
++        i++
++      } else {
++        parsedValues[left.rawName].push(left.value || true)
++      }
+     }
+   }
+ 
+-  return values
++  return new NodeOptions(parsedValues)
+ }
+ 
+ /**
+@@ -169,40 +250,41 @@ export const getParsedDebugAddress = (
+  * Stringify the arguments to be used in a command line. It will ignore any
+  * argument that has a value of `undefined`.
+  *
+- * @param args The arguments to be stringified.
++ * @param nodeOptions The NodeOptions instance to be stringified.
+  * @returns A string with the arguments.
+  */
+-export function formatNodeOptions(
+-  args: Record<string, string | boolean | undefined>
+-): string {
+-  return Object.entries(args)
+-    .map(([key, value]) => {
+-      if (value === true) {
+-        return `--${key}`
+-      }
+-
+-      if (value) {
+-        return `--${key}=${
+-          // Values with spaces need to be quoted. We use JSON.stringify to
+-          // also escape any nested quotes.
+-          value.includes(' ') && !value.startsWith('"')
+-            ? JSON.stringify(value)
+-            : value
+-        }`
+-      }
+-
+-      return null
++export function formatNodeOptions(nodeOptions: NodeOptions): string {
++  return Object.entries(nodeOptions.raw())
++    .map(([key, values]) => {
++      return values
++        .map((value) => {
++          if (value === true) {
++            return key
++          }
++
++          if (value) {
++            // Values with spaces need to be quoted. We use JSON.stringify to
++            // also escape any nested quotes.
++            const encodedValue =
++              value.includes(' ') && !value.startsWith('"')
++                ? JSON.stringify(value)
++                : value
++
++            return `${key}${key.startsWith('--') ? '=' : ' '}${encodedValue}`
++          }
++
++          return null
++        })
++        .filter(Boolean)
++        .join(' ')
+     })
+-    .filter((arg) => arg !== null)
++    .filter((arg) => arg !== null && arg !== '')
+     .join(' ')
+ }
+ 
+-export function getParsedNodeOptions(): Record<
+-  string,
+-  string | boolean | undefined
+-> {
++export function getParsedNodeOptions(): NodeOptions {
+   const args = [...process.execArgv, ...getNodeOptionsArgs()]
+-  if (args.length === 0) return {}
++  if (args.length === 0) return new NodeOptions()
+ 
+   return parseNodeArgs(args)
+ }
+@@ -213,16 +295,16 @@ export function getParsedNodeOptions(): Record<
+  *
+  * @returns An object with the parsed node options.
+  */
+-export function getParsedNodeOptionsWithoutInspect() {
++export function getParsedNodeOptionsWithoutInspect(): NodeOptions {
+   const args = getNodeOptionsArgs()
+-  if (args.length === 0) return {}
++  if (args.length === 0) return new NodeOptions()
+ 
+   const parsed = parseNodeArgs(args)
+ 
+   // Remove inspect options.
+-  delete parsed.inspect
+-  delete parsed['inspect-brk']
+-  delete parsed['inspect_brk']
++  parsed.delete('inspect')
++  parsed.delete('inspect-brk')
++  parsed.delete('inspect_brk')
+ 
+   return parsed
+ }
+@@ -234,10 +316,10 @@ export function getParsedNodeOptionsWithoutInspect() {
+  * @returns A string with the formatted node options.
+  */
+ export function getFormattedNodeOptionsWithoutInspect() {
+-  const args = getParsedNodeOptionsWithoutInspect()
+-  if (Object.keys(args).length === 0) return ''
++  const nodeOptions = getParsedNodeOptionsWithoutInspect()
++  if (Object.keys(nodeOptions.raw()).length === 0) return ''
+ 
+-  return formatNodeOptions(args)
++  return formatNodeOptions(nodeOptions)
+ }
+ 
+ /**
+@@ -262,10 +344,10 @@ export type NodeInspectType = 'inspect' | 'inspect-brk' | undefined
+  * Get the debug type from the `NODE_OPTIONS` environment variable.
+  */
+ export function getNodeDebugType(nodeOptions: NodeOptions): NodeInspectType {
+-  if (nodeOptions.inspect) {
++  if (nodeOptions.has('inspect')) {
+     return 'inspect'
+   }
+-  if (nodeOptions['inspect-brk'] || nodeOptions['inspect_brk']) {
++  if (nodeOptions.has('inspect-brk') || nodeOptions.has('inspect_brk')) {
+     return 'inspect-brk'
+   }
+ }
+@@ -282,7 +364,8 @@ export function getMaxOldSpaceSize() {
+ 
+   const parsed = parseNodeArgs(args)
+ 
+-  const size = parsed['max-old-space-size'] || parsed['max_old_space_size']
++  const size =
++    parsed.get('max-old-space-size') || parsed.get('max_old_space_size')
+   if (!size || typeof size !== 'string') return
+ 
+   return parseInt(size, 10)
+-- 
+2.32.0 (Apple Git-132)
+
