@@ -1,4 +1,4 @@
-From 5400f5ad37ca3bfa1f2f531d5d0ed54a20349c2c Mon Sep 17 00:00:00 2001
+From 8b1dc2cd1c9efc47d896c8e33ea42f5baa361a64 Mon Sep 17 00:00:00 2001
 From: Ryan Underwood <runderworld@gmail.com>
 Date: Fri, 13 Feb 2026 11:26:00 -0800
 Subject: [PATCH] fix: correct parseNodeArgs and formatNodeOptions processing
