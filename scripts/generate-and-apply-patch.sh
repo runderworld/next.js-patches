@@ -409,10 +409,13 @@ if [ "$DRY_RUN" = false ]; then
 }
 EOF
 
-  echo "🔐 Verifying npm auth..."
-  if ! npm whoami >/dev/null 2>&1; then
-    echo "❌ Not logged in to npm. Run 'npm login' first." >&2
+  echo "🔐 Verifying npm publish auth (dry-run)..."
+  pushd "$PACKAGE_DIR" > /dev/null
+  if ! npm publish --dry-run --access public >/dev/null 2>&1; then
+    echo "❌ npm publish --dry-run failed. Token may be expired." >&2
+    echo "   Run 'npm login' and try again." >&2
     echo "   (The dist patch is saved at: $DIST_PATCH_PATH)"
+    popd > /dev/null
     rm -rf "$PACKAGE_DIR"
     echo "🧹 Cleaning up Next.js workspace..."
     git -C "$NEXTJS_REPO" checkout upstream/canary >/dev/null 2>&1 || true
@@ -421,10 +424,9 @@ EOF
     git -C "$NEXTJS_REPO" clean -fd
     exit 1
   fi
-  echo "✅ Logged in as: $(npm whoami)"
+  echo "✅ Dry-run passed — auth is valid"
 
   echo "🚀 Publishing to NPM..."
-  pushd "$PACKAGE_DIR" > /dev/null
 
   if ! npm publish --access public; then
     echo "🛑 NPM publish failed." >&2
