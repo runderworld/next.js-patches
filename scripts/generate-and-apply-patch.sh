@@ -381,75 +381,44 @@ fi
 
 echo "✅ Reached end of patch generation block"
 
-# Step 5: Publish to NPM first (before any git commits/tags/pushes)
-# npm tokens expire quickly, so we publish immediately while the token is fresh.
-# If publish fails, nothing in git has been touched — clean abort.
 STRIPPED_TAG="${TAG#v}"
 BRANCH="patch-v${STRIPPED_TAG}"
 DIST_PATCH_NAME="$(basename "$DIST_PATCH_PATH")"
 
-if [ "$DRY_RUN" = false ]; then
-  echo "📦 Preparing NPM package for version: ${STRIPPED_TAG}"
-  mkdir -p "$PACKAGE_DIR"
-  cp "$DIST_PATCH_PATH" "$PACKAGE_DIR/dist.patch"
+# ── Cleanup helper ──────────────────────────────────────────────────────────
+# Centralised teardown so every failure path does the same thing.
+#   $1 = "full"  → undo git branch/tag + nextjs workspace
+#        "next"  → nextjs workspace only (git not yet touched)
+cleanup_on_failure() {
+  local scope="${1:-full}"
 
-  cat > "$PACKAGE_DIR/package.json" <<EOF
-{
-  "name": "@runderworld/next.js-patches",
-  "version": "${STRIPPED_TAG}",
-  "description": "Dist patch overlay for Next.js ${TAG} with ${SRC_PATCH_NAME%.patch}",
-  "main": "dist.patch",
-  "files": ["dist.patch"],
-  "keywords": ["next.js", "patch", "dist", "overlay", "enterprise"],
-  "author": "runderworld",
-  "license": "MIT",
-  "publishConfig": {
-    "access": "public"
-  }
-}
-EOF
-
-  echo "🔐 Verifying npm publish auth (dry-run)..."
-  pushd "$PACKAGE_DIR" > /dev/null
-  if ! npm publish --dry-run --access public >/dev/null 2>&1; then
-    echo "❌ npm publish --dry-run failed. Token may be expired." >&2
-    echo "   Run 'npm login' and try again." >&2
-    echo "   (The dist patch is saved at: $DIST_PATCH_PATH)"
-    popd > /dev/null
-    rm -rf "$PACKAGE_DIR"
-    echo "🧹 Cleaning up Next.js workspace..."
-    git -C "$NEXTJS_REPO" checkout upstream/canary >/dev/null 2>&1 || true
-    git -C "$NEXTJS_REPO" branch -D "$BRANCH_NAME" 2>/dev/null || true
-    git -C "$NEXTJS_REPO" reset --hard
-    git -C "$NEXTJS_REPO" clean -fd
-    exit 1
-  fi
-  echo "✅ Dry-run passed — auth is valid"
-
-  echo "🚀 Publishing to NPM..."
-
-  if ! npm publish --access public; then
-    echo "🛑 NPM publish failed." >&2
-    echo "   (The dist patch is saved at: $DIST_PATCH_PATH)"
-    popd > /dev/null
-    rm -rf "$PACKAGE_DIR"
-    echo "🧹 Cleaning up Next.js workspace..."
-    git -C "$NEXTJS_REPO" checkout upstream/canary >/dev/null 2>&1 || true
-    git -C "$NEXTJS_REPO" branch -D "$BRANCH_NAME" 2>/dev/null || true
-    git -C "$NEXTJS_REPO" reset --hard
-    git -C "$NEXTJS_REPO" clean -fd
-    exit 1
+  if [[ "$scope" == "full" ]]; then
+    echo "🧹 Rolling back git operations in patches repo..."
+    # Remote tag
+    git push origin ":refs/tags/${TAG}" 2>/dev/null || true
+    # Local tag
+    git tag -d "${TAG}" 2>/dev/null || true
+    # Remote branch
+    git push origin --delete "${BRANCH}" 2>/dev/null || true
+    # Switch off the branch before deleting it
+    git checkout main 2>/dev/null || git checkout - 2>/dev/null || true
+    # Local branch
+    git branch -D "${BRANCH}" 2>/dev/null || true
+    # Reset any uncommitted leftovers
+    git reset --hard HEAD 2>/dev/null || true
   fi
 
-  echo "✅ Patch published as @runderworld/next.js-patches@${STRIPPED_TAG}"
-  popd > /dev/null
+  echo "🧹 Cleaning up Next.js workspace..."
+  git -C "$NEXTJS_REPO" checkout upstream/canary >/dev/null 2>&1 || true
+  git -C "$NEXTJS_REPO" branch -D "$BRANCH_NAME" 2>/dev/null || true
+  git -C "$NEXTJS_REPO" reset --hard
+  git -C "$NEXTJS_REPO" clean -fd
+
+  echo "🧹 Cleaning up package directory..."
   rm -rf "$PACKAGE_DIR"
-else
-  echo "🧪 Dry-run: skipping NPM publish."
-fi
+}
 
-# Step 6: Commit dist + source patches to a new branch, tag, and push
-# npm publish succeeded (or dry-run), so git operations are safe now.
+# Step 5: Commit dist + source patches to a new branch, tag, and push
 echo "📦 Creating and switching to branch: ${BRANCH}"
 git checkout -b "${BRANCH}"
 
@@ -474,7 +443,47 @@ else
   echo "🧪 Dry-run: skipping git push and tag"
 fi
 
-# Cleanup Next.js workspace
+# Step 6: Prepare and publish NPM package
+if [ "$DRY_RUN" = false ]; then
+  echo "📦 Preparing NPM package for version: ${STRIPPED_TAG}"
+  mkdir -p "$PACKAGE_DIR"
+  cp "$DIST_PATCH_PATH" "$PACKAGE_DIR/dist.patch"
+
+  cat > "$PACKAGE_DIR/package.json" <<EOF
+{
+  "name": "@runderworld/next.js-patches",
+  "version": "${STRIPPED_TAG}",
+  "description": "Dist patch overlay for Next.js ${TAG} with ${SRC_PATCH_NAME%.patch}",
+  "main": "dist.patch",
+  "files": ["dist.patch"],
+  "keywords": ["next.js", "patch", "dist", "overlay", "enterprise"],
+  "author": "runderworld",
+  "license": "MIT",
+  "publishConfig": {
+    "access": "public"
+  }
+}
+EOF
+
+  echo "🚀 Publishing to NPM..."
+  pushd "$PACKAGE_DIR" > /dev/null
+
+  if ! npm publish --access public; then
+    echo "🛑 NPM publish failed." >&2
+    echo "   (The dist patch is saved at: $DIST_PATCH_PATH)"
+    popd > /dev/null
+    cleanup_on_failure full
+    exit 1
+  fi
+
+  echo "✅ Patch published as @runderworld/next.js-patches@${STRIPPED_TAG}"
+  popd > /dev/null
+  rm -rf "$PACKAGE_DIR"
+else
+  echo "🧪 Dry-run: skipping NPM publish."
+fi
+
+# Step 7: Cleanup
 if [ "$DRY_RUN" = false ]; then
   echo "🧹 Cleaning up Next.js workspace..."
   git -C "$NEXTJS_REPO" checkout upstream/canary >/dev/null 2>&1 || true
