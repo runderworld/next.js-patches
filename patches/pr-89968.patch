@@ -1,8 +1,8 @@
-From 8b1dc2cd1c9efc47d896c8e33ea42f5baa361a64 Mon Sep 17 00:00:00 2001
+From 11dd4a1d57fed2ab740023ba2fbb17ef8f074ae8 Mon Sep 17 00:00:00 2001
 From: Ryan Underwood <runderworld@gmail.com>
 Date: Fri, 13 Feb 2026 11:26:00 -0800
-Subject: [PATCH] fix: correct parseNodeArgs and formatNodeOptions processing
- of NODE_OPTIONS
+Subject: [PATCH 1/2] fix: correct parseNodeArgs and formatNodeOptions
+ processing of NODE_OPTIONS
 MIME-Version: 1.0
 Content-Type: text/plain; charset=UTF-8
 Content-Transfer-Encoding: 8bit
@@ -30,9 +30,9 @@ Changes:
 ---
  packages/next/src/cli/next-dev.ts          |  20 +-
  packages/next/src/lib/worker.ts            |  18 +-
- packages/next/src/server/lib/utils.test.ts |  70 ++++++-
+ packages/next/src/server/lib/utils.test.ts |  77 +++++++-
  packages/next/src/server/lib/utils.ts      | 217 ++++++++++++++-------
- 4 files changed, 232 insertions(+), 93 deletions(-)
+ 4 files changed, 239 insertions(+), 93 deletions(-)
 
 diff --git a/packages/next/src/cli/next-dev.ts b/packages/next/src/cli/next-dev.ts
 index fae76cb4e0..4018b32c26 100644
@@ -131,7 +131,7 @@ index fe405934ff..e2d76d9819 100644
  
      const createWorker = () => {
 diff --git a/packages/next/src/server/lib/utils.test.ts b/packages/next/src/server/lib/utils.test.ts
-index cac551cd3b..c57cdbb27a 100644
+index cac551cd3b..1da4b8e881 100644
 --- a/packages/next/src/server/lib/utils.test.ts
 +++ b/packages/next/src/server/lib/utils.test.ts
 @@ -4,6 +4,7 @@ import {
@@ -142,7 +142,7 @@ index cac551cd3b..c57cdbb27a 100644
  } from './utils'
  
  const originalNodeOptions = process.env.NODE_OPTIONS
-@@ -42,30 +43,63 @@ describe('tokenizeArgs', () => {
+@@ -42,30 +43,70 @@ describe('tokenizeArgs', () => {
  
  describe('formatNodeOptions', () => {
    it('wraps values with spaces in quotes', () => {
@@ -202,6 +202,13 @@ index cac551cd3b..c57cdbb27a 100644
      const nodeOptions = getParsedNodeOptions()
 -    const result = getParsedDebugAddress(nodeOptions.inspect)
 +    const result = getParsedDebugAddress(nodeOptions.get('inspect'))
++    expect(result).toEqual({ host: undefined, port: 1234 })
++  })
++
++  it('uses inline value when followed by a positional token', () => {
++    process.env.NODE_OPTIONS = '--inspect=1234 ./some-script.js'
++    const nodeOptions = getParsedNodeOptions()
++    const result = getParsedDebugAddress(nodeOptions.get('inspect'))
      expect(result).toEqual({ host: undefined, port: 1234 })
    })
  
@@ -213,7 +220,7 @@ index cac551cd3b..c57cdbb27a 100644
      expect(result).toEqual({ host: undefined, port: 1234 })
    })
  })
-@@ -105,6 +139,28 @@ describe('getFormattedNodeOptionsWithoutInspect', () => {
+@@ -105,6 +146,28 @@ describe('getFormattedNodeOptionsWithoutInspect', () => {
      )
    })
  
@@ -243,7 +250,7 @@ index cac551cd3b..c57cdbb27a 100644
      process.env.NODE_OPTIONS = '--other --inspect=0.0.0.0:1234 --additional'
      const result = getFormattedNodeOptionsWithoutInspect()
 diff --git a/packages/next/src/server/lib/utils.ts b/packages/next/src/server/lib/utils.ts
-index 189a025e30..5e13e67cb1 100644
+index 189a025e30..5d94e3024a 100644
 --- a/packages/next/src/server/lib/utils.ts
 +++ b/packages/next/src/server/lib/utils.ts
 @@ -11,51 +11,132 @@ export function printAndExit(message: string, code = 1) {
@@ -336,11 +343,6 @@ index 189a025e30..5e13e67cb1 100644
 +    return undefined
 +  }
 +}
-+
-+/** @internal Build-time fingerprint for patch verification. */
-+enum PatchFlags {
-+  RunderworldNodeOptions = 'runderworld.node.options.patch'
-+}
  
  const parseNodeArgs = (args: string[]): NodeOptions => {
 -  const { values, tokens } = parseArgs({ args, strict: false, tokens: true })
@@ -366,10 +368,9 @@ index 189a025e30..5e13e67cb1 100644
 -    // then the option is orphaned, and we can assign it.
 -    if (token.kind === 'option') {
 -      orphan = typeof token.value === 'undefined' ? token : null
-+    if (left.kind === 'positional') {
-       continue
-     }
- 
+-      continue
+-    }
+-
 -    // If the token isn't a positional one, then we can't assign it to the found
 -    // orphaned option.
 -    if (token.kind !== 'positional') {
@@ -379,9 +380,10 @@ index 189a025e30..5e13e67cb1 100644
 -
 -    // If we don't have an orphan, then we can skip this token.
 -    if (!orphan) {
--      continue
--    }
--
++    if (left.kind === 'positional') {
+       continue
+     }
+ 
 -    // If the token is a positional one, and it has a value, so add it to the
 -    // values object. If it already exists, append it with a space.
 -    if (orphan.name in values && typeof values[orphan.name] === 'string') {
@@ -394,11 +396,16 @@ index 189a025e30..5e13e67cb1 100644
 +    // explicitly to it, `--token=value` or as the following positional token,
 +    // i.e. `--token value`
 +    if (left.kind === 'option') {
-+      if (right?.kind === 'positional') {
++      if (left.value) {
++        // Inline value via `=`, e.g. `--inspect=1234`
++        parsedValues[left.rawName].push(left.value)
++      } else if (right?.kind === 'positional') {
++        // Space-separated value, e.g. `--inspect 1234` or `-r ./file.js`
 +        parsedValues[left.rawName].push(right.value)
 +        i++
 +      } else {
-+        parsedValues[left.rawName].push(left.value || true)
++        // Boolean flag, e.g. `--inspect` with no value
++        parsedValues[left.rawName].push(true)
 +      }
      }
    }
@@ -536,6 +543,35 @@ index 189a025e30..5e13e67cb1 100644
    if (!size || typeof size !== 'string') return
  
    return parseInt(size, 10)
+-- 
+2.32.0 (Apple Git-132)
+
+
+From 61a373233b2e70d223664dd27c99561f597a5271 Mon Sep 17 00:00:00 2001
+From: Ryan Underwood <runderworld@gmail.com>
+Date: Fri, 20 Feb 2026 17:12:25 -0800
+Subject: [PATCH 2/2] chore: add build-time fingerprint for patch verification
+
+---
+ packages/next/src/server/lib/utils.ts | 5 +++++
+ 1 file changed, 5 insertions(+)
+
+diff --git a/packages/next/src/server/lib/utils.ts b/packages/next/src/server/lib/utils.ts
+index 5d94e3024a..84cbdb053e 100644
+--- a/packages/next/src/server/lib/utils.ts
++++ b/packages/next/src/server/lib/utils.ts
+@@ -97,6 +97,11 @@ export class NodeOptions {
+   }
+ }
+ 
++/** @internal Build-time fingerprint for patch verification. */
++enum PatchFlags {
++  RunderworldNodeOptions = 'runderworld.node.options.patch',
++}
++
+ const parseNodeArgs = (args: string[]): NodeOptions => {
+   const { tokens } = parseArgs({ args, strict: false, tokens: true })
+ 
 -- 
 2.32.0 (Apple Git-132)
 
