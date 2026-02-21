@@ -40,9 +40,12 @@ PR_COMMITS_V15=(
   f80235400f160c4d1278ed3e336083c5c5d66a2a
 )
 
-# v16.x: single commit from PR #89968
+# v16.x: PR #89968 fix + fingerprint commit
 PR_COMMITS_V16=(
-  d74d4aa71dcd15199101fa42a967079abc27a348
+  # fix: correct parseNodeArgs and formatNodeOptions processing
+  8604ded8b3
+  # chore: add build-time fingerprint for patch verification
+  781a6ee519
 )
 
 resolve_patch_config() {
@@ -94,7 +97,7 @@ resolve_patch_config() {
     16)
       SRC_PATCH_NAME="pr-89968.patch"
       PR_COMMITS=("${PR_COMMITS_V16[@]}")
-      PR_BRANCH="fix/node-options-v16"
+      PR_BRANCH="fix/node-options-v16++"
       # v16.x does not bundle utils into compiled runtimes
       PATCHED_FILES=("${shared_files[@]}")
       ;;
