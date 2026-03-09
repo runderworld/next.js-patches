@@ -197,9 +197,30 @@ git -C "$NEXTJS_REPO" remote get-url upstream >/dev/null 2>&1 || \
 check_clean() {
   local repo_path="$1"
   local label="$2"
+  
   if ! git -C "$repo_path" diff --quiet || ! git -C "$repo_path" diff --cached --quiet; then
-    echo "❌ $label repo is not clean. Please commit or stash changes before running this script."
-    exit 1
+    if [[ "$label" == "Next.js" ]]; then
+      echo "⚠️ $label repo is not clean (likely from a failed cherry-pick)."
+      echo "🧹 Attempting auto-cleanup..."
+      git -C "$repo_path" cherry-pick --abort 2>/dev/null || true
+      git -C "$repo_path" rebase --abort 2>/dev/null || true
+      git -C "$repo_path" am --abort 2>/dev/null || true
+      git -C "$repo_path" checkout upstream/canary 2>/dev/null || true
+      git -C "$repo_path" branch -D patch-stack 2>/dev/null || true
+      git -C "$repo_path" reset --hard 2>/dev/null || true
+      git -C "$repo_path" clean -fd 2>/dev/null || true
+      
+      if git -C "$repo_path" diff --quiet && git -C "$repo_path" diff --cached --quiet; then
+        echo "✅ $label repo cleaned up successfully."
+        return 0
+      else
+        echo "❌ Failed to clean $label repo. Please manually resolve."
+        exit 1
+      fi
+    else
+      echo "❌ $label repo is not clean. Please commit or stash changes before running this script."
+      exit 1
+    fi
   fi
 }
 
@@ -223,7 +244,16 @@ git checkout -b patch-stack "$TAG"
 
 echo "🧵 Cherry-picking commits into patch-stack..."
 for commit in "${PR_COMMITS[@]}"; do
-  git cherry-pick "$commit"
+  if ! git cherry-pick "$commit"; then
+    echo "❌ Cherry-pick failed for $commit (likely merge conflict)"
+    echo "🧹 Aborting cherry-pick and cleaning up..."
+    git cherry-pick --abort || true
+    git checkout upstream/canary 2>/dev/null || true
+    git branch -D patch-stack 2>/dev/null || true
+    popd > /dev/null
+    echo "🧹 Cleaned up Next.js workspace. Please resolve the upstream divergence and try again."
+    exit 1
+  fi
 done
 
 NUM_COMMITS="${#PR_COMMITS[@]}"
