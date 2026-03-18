@@ -1,4 +1,4 @@
-From 11dd4a1d57fed2ab740023ba2fbb17ef8f074ae8 Mon Sep 17 00:00:00 2001
+From 6d5b91d54a70a0903bef8ba3bd69db2a27ed7d04 Mon Sep 17 00:00:00 2001
 From: Ryan Underwood <runderworld@gmail.com>
 Date: Fri, 13 Feb 2026 11:26:00 -0800
 Subject: [PATCH 1/2] fix: correct parseNodeArgs and formatNodeOptions
@@ -35,10 +35,10 @@ Changes:
  4 files changed, 239 insertions(+), 93 deletions(-)
 
 diff --git a/packages/next/src/cli/next-dev.ts b/packages/next/src/cli/next-dev.ts
-index fae76cb4e0..4018b32c26 100644
+index 226d9b5d76..a82499f984 100644
 --- a/packages/next/src/cli/next-dev.ts
 +++ b/packages/next/src/cli/next-dev.ts
-@@ -293,34 +293,34 @@ const nextDev = async (
+@@ -270,34 +270,34 @@ const nextDev = async (
          const totalMemInMB = Math.floor(totalMem / 1024 / 1024)
          maxOldSpaceSize = Math.floor(totalMemInMB * 0.5).toString()
  
@@ -547,7 +547,7 @@ index 189a025e30..5d94e3024a 100644
 2.32.0 (Apple Git-132)
 
 
-From 61a373233b2e70d223664dd27c99561f597a5271 Mon Sep 17 00:00:00 2001
+From 2ac3b53cc611979aa63b3da3733525f9b0895edc Mon Sep 17 00:00:00 2001
 From: Ryan Underwood <runderworld@gmail.com>
 Date: Fri, 20 Feb 2026 17:12:25 -0800
 Subject: [PATCH 2/2] chore: add build-time fingerprint for patch verification
