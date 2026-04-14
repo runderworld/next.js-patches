@@ -1,4 +1,4 @@
-From 11dd4a1d57fed2ab740023ba2fbb17ef8f074ae8 Mon Sep 17 00:00:00 2001
+From 2aba0650efd58066a7c6bfa66a85a587bf701bc8 Mon Sep 17 00:00:00 2001
 From: Ryan Underwood <runderworld@gmail.com>
 Date: Fri, 13 Feb 2026 11:26:00 -0800
 Subject: [PATCH 1/2] fix: correct parseNodeArgs and formatNodeOptions
@@ -84,7 +84,7 @@ index fae76cb4e0..4018b32c26 100644
  
        child = fork(startServerPath, {
 diff --git a/packages/next/src/lib/worker.ts b/packages/next/src/lib/worker.ts
-index fe405934ff..e2d76d9819 100644
+index 7d4c68a44d..670d76f487 100644
 --- a/packages/next/src/lib/worker.ts
 +++ b/packages/next/src/lib/worker.ts
 @@ -88,15 +88,15 @@ export class Worker {
@@ -547,7 +547,7 @@ index 189a025e30..5d94e3024a 100644
 2.32.0 (Apple Git-132)
 
 
-From 61a373233b2e70d223664dd27c99561f597a5271 Mon Sep 17 00:00:00 2001
+From 505cba00a9ccdd573ddcac079a74d7e970a09b86 Mon Sep 17 00:00:00 2001
 From: Ryan Underwood <runderworld@gmail.com>
 Date: Fri, 20 Feb 2026 17:12:25 -0800
 Subject: [PATCH 2/2] chore: add build-time fingerprint for patch verification
