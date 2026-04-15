@@ -32,13 +32,13 @@ This utility automates the process of generating, verifying, and publishing dist
 
 ### Inputs
 
-- Prompts for upstream tag (e.g. `v15.5.2`)
-- Uses hardcoded commit list for `pr-71759++` patch
+- Prompts for upstream tag (e.g. `v16.2.3`)
+- Derives fix branch (`fix/node-options-v<major>-<minor>`) and commits to cherry-pick from the tag's major.minor version
 
 ### Output
 
-- `patches/pr-71759++.patch` — Source patch
-- `patches/dist-<tag>-pr71759++.patch` — Dist-level patch
+- `patches/fix-node-options-v<major>-<minor>.patch` — Source patch
+- `patches/dist--fix-node-options-v<major>-<minor>.patch` — Dist-level patch
 - `patches/manifest.json` — Metadata registry
 - `@runderworld/next.js-patches@<version>` — Published NPM package
 

@@ -22,38 +22,27 @@ PACKAGE_DIR="$PATCHES_REPO/package"
 MANIFEST_PATH="patches/manifest.json"
 FINGERPRINT_TOKEN="runderworld.node.options.patch"
 
-# ── v15 vs v16 patch configuration ──────────────────────────────────────────
+# ── Patch configuration ─────────────────────────────────────────────────────
 # Resolved after TAG is known (see resolve_patch_config below).
 # These variables are set by resolve_patch_config():
-#   SRC_PATCH_NAME   – source patch filename  (e.g. pr-71759++.patch)
-#   PR_COMMITS       – array of commit hashes to cherry-pick
-#   PR_BRANCH        – origin branch that contains the commits
+#   SRC_PATCH_NAME   – source patch filename  (e.g. fix-node-options-v16-2.patch)
+#   PR_BRANCH        – origin branch that contains the fix commits
 #   PATCHED_FILES    – dist files affected by the patch
-
-# v15.x: three cherry-picked commits from PR #71759
-PR_COMMITS_V15=(
-  # Original PR commit from Martin Madsen (factbird)
-  fda4d5b1516490cea76650a80c8ecaac58f30c74
-  # Follow-up commit from same contributor
-  020f58dbef9bfe5e57b62e56870194fe62e02983
-  # Local fix authored by runderworld
-  f80235400f160c4d1278ed3e336083c5c5d66a2a
-)
-
-# v16.x: PR #89968 fix + fingerprint commit
-PR_COMMITS_V16=(
-  # fix: correct parseNodeArgs and formatNodeOptions processing
-  8604ded8b3
-  # chore: add build-time fingerprint for patch verification
-  781a6ee519
-)
+#   PR_COMMITS       – hardcoded array of fix commit hashes (cherry-pick order)
 
 resolve_patch_config() {
   local tag="$1"
-  local major
+  local major minor
   major="$(echo "${tag#v}" | cut -d. -f1)"
+  minor="$(echo "${tag#v}" | cut -d. -f2)"
 
-  # Shared dist files affected by both patches
+  # ── Naming convention ─────────────────────────────────────────────────
+  # Branch:     fix/node-options-v<major>-<minor>
+  # Patch file: fix-node-options-v<major>-<minor>.patch
+  PR_BRANCH="fix/node-options-v${major}-${minor}"
+  SRC_PATCH_NAME="fix-node-options-v${major}-${minor}.patch"
+
+  # ── Dist files affected (shared across all versions) ──────────────────
   local shared_files=(
     node_modules/next/dist/cli/next-dev.js
     node_modules/next/dist/cli/next-dev.js.map
@@ -68,11 +57,9 @@ resolve_patch_config() {
     node_modules/next/dist/server/lib/utils.js.map
   )
 
+  # ── Per-major version: extra patched files ─────────────────────────────
   case "$major" in
     15)
-      SRC_PATCH_NAME="pr-71759++.patch"
-      PR_COMMITS=("${PR_COMMITS_V15[@]}")
-      PR_BRANCH="patch-pr71759++"
       # v15.x bundles utils into compiled runtime bundles
       PATCHED_FILES=(
         "${shared_files[@]}"
@@ -95,9 +82,6 @@ resolve_patch_config() {
       )
       ;;
     16)
-      SRC_PATCH_NAME="pr-89968.patch"
-      PR_COMMITS=("${PR_COMMITS_V16[@]}")
-      PR_BRANCH="fix/node-options-v16++"
       # v16.x does not bundle utils into compiled runtimes
       PATCHED_FILES=("${shared_files[@]}")
       ;;
@@ -108,11 +92,42 @@ resolve_patch_config() {
       ;;
   esac
 
+  # ── Hardcoded fix commits per major.minor ────────────────────────────────
+  # These are the commits on origin/<PR_BRANCH> AFTER the base tag commit.
+  # Order: oldest → newest (cherry-pick order).
+  case "${major}.${minor}" in
+    15.4)
+      PR_COMMITS=(
+        2f67c2628d   # Account for positional option values and support repeated options
+        9effe5e72a   # Safely extract the first inspect value
+        c68c2c6589   # fix: wrap node option assignments in arrays for compatibility
+        8c772ac17f   # chore: add build-time fingerprint for patch verification
+      )
+      ;;
+    16.0)
+      PR_COMMITS=(
+        8604ded8b3   # fix: correct parseNodeArgs and formatNodeOptions processing
+        781a6ee519   # chore: add build-time fingerprint for patch verification
+      )
+      ;;
+    16.2)
+      PR_COMMITS=(
+        f829467a9c   # fix: correct parseNodeArgs and formatNodeOptions processing
+        fb888e493a   # chore: add build-time fingerprint for patch verification
+      )
+      ;;
+    *)
+      echo "🛑 No fix commits defined for v${major}.${minor} (tag: $tag)"
+      echo "   Known variants: 15.4, 16.0, 16.2"
+      exit 1
+      ;;
+  esac
+
   PATCH_FILE="$PATCHES_REPO/patches/$SRC_PATCH_NAME"
-  echo "📋 Resolved patch config for v${major}.x:"
+  echo "📋 Resolved patch config for v${major}.${minor}:"
   echo "   Source patch:  $SRC_PATCH_NAME"
   echo "   PR branch:    $PR_BRANCH"
-  echo "   Commits:      ${#PR_COMMITS[@]}"
+  echo "   Fix commits:  ${#PR_COMMITS[@]}"
 }
 
 # Parse flags
@@ -153,9 +168,8 @@ TAG="${TAG:-$DEFAULT_TAG}"
 resolve_patch_config "$TAG"
 
 BRANCH_NAME="patch-${TAG}"
-# Derive dist patch name from source patch (e.g. pr-71759++.patch → pr71759++, pr-89968.patch → pr89968)
-PATCH_LABEL="$(basename "$SRC_PATCH_NAME" .patch | tr -d '-')"
-DIST_PATCH_NAME="dist-${TAG}-${PATCH_LABEL}.patch"
+# Dist patch: dist--<source-patch-name>  (e.g. dist--fix-node-options-v16-2.patch)
+DIST_PATCH_NAME="dist--${SRC_PATCH_NAME}"
 DIST_PATCH_PATH="$PATCHES_REPO/patches/$DIST_PATCH_NAME"
 
 if [ "$FORCE_REFRESH" = true ]; then
@@ -166,7 +180,7 @@ fi
 if [ -d "$NEXTJS_REPO/.git" ]; then
   echo "🔄 Reusing existing Next.js workspace..."
   pushd "$NEXTJS_REPO" > /dev/null
-  git fetch origin "$PR_BRANCH" --update-head-ok
+  git fetch origin "${PR_BRANCH}:refs/remotes/origin/${PR_BRANCH}" --update-head-ok
   git fetch upstream "refs/tags/$TAG:refs/tags/$TAG" "+refs/heads/canary:refs/remotes/upstream/canary" --depth=1
   popd > /dev/null
 else
@@ -174,19 +188,14 @@ else
   git clone git@github.com:runderworld/next.js.git "$NEXTJS_REPO"
 fi
 
-# Ensures all three PR commits are available locally without triggering a massive packfile download
-echo "🌐 Fetching branch on origin that contains all PR commits ($PR_BRANCH)..."
-git -C "$NEXTJS_REPO" fetch origin "$PR_BRANCH"
+# Fetch the fix branch so cherry-pick can resolve the commit hashes
+echo "🌐 Fetching fix branch from origin ($PR_BRANCH)..."
+git -C "$NEXTJS_REPO" fetch origin "${PR_BRANCH}:refs/remotes/origin/${PR_BRANCH}"
 
-echo "🔍 Validating presence of expected PR commits in fetched branch..."
+echo "📋 Will cherry-pick ${#PR_COMMITS[@]} hardcoded commit(s) from $PR_BRANCH:"
 for commit in "${PR_COMMITS[@]}"; do
-  if git -C "$NEXTJS_REPO" cat-file -e "$commit" 2>/dev/null; then
-    MESSAGE=$(git -C "$NEXTJS_REPO" log --format='%h %s' -n 1 "$commit")
-    echo "✅ Found: $MESSAGE"
-  else
-    echo "🛑 Missing commit: $commit"
-    exit 1
-  fi
+  MESSAGE=$(git -C "$NEXTJS_REPO" log --format='  %h %s' -n 1 "$commit" 2>/dev/null || echo "  $commit (not yet fetched)")
+  echo "$MESSAGE"
 done
 
 echo "🌐 Adding upstream remote..."
@@ -451,6 +460,11 @@ cleanup_on_failure() {
   rm -rf "$PACKAGE_DIR"
 }
 
+# From this point on, any unexpected failure should trigger cleanup.
+# (Explicit error paths call cleanup_on_failure directly, but this
+# catches anything killed by set -e that we didn't wrap.)
+trap 'echo "🛑 Unexpected failure — cleaning up..."; cleanup_on_failure full' ERR
+
 # Step 5: Commit dist + source patches to a new branch, tag, and push
 echo "📦 Creating and switching to branch: ${BRANCH}"
 git checkout -b "${BRANCH}"
@@ -468,9 +482,20 @@ echo "📦 Committing patches"
 git commit -q -m "chore: add source & dist patches for next ${STRIPPED_TAG}"
 
 if [ "$DRY_RUN" = false ]; then
-  git push --set-upstream origin "${BRANCH}"
+  if ! git push --set-upstream origin "${BRANCH}"; then
+    echo "🛑 git push failed (branch: ${BRANCH})." >&2
+    cleanup_on_failure full
+    exit 1
+  fi
+
   git tag -f "${TAG}"
-  git push origin "${TAG}"
+
+  if ! git push origin "${TAG}"; then
+    echo "🛑 git push failed (tag: ${TAG})." >&2
+    cleanup_on_failure full
+    exit 1
+  fi
+
   echo "🏷️ Git tag created: ${TAG}"
 else
   echo "🧪 Dry-run: skipping git push and tag"
@@ -516,7 +541,9 @@ else
   echo "🧪 Dry-run: skipping NPM publish."
 fi
 
-# Step 7: Cleanup
+# Step 7: Cleanup — clear the ERR trap first so normal teardown doesn't trigger it
+trap - ERR
+
 if [ "$DRY_RUN" = false ]; then
   echo "🧹 Cleaning up Next.js workspace..."
   git -C "$NEXTJS_REPO" checkout upstream/canary >/dev/null 2>&1 || true

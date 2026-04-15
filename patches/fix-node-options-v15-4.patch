@@ -1,0 +1,324 @@
+From a75f144f03d251d479f91c5ba135827ce60c3fbb Mon Sep 17 00:00:00 2001
+From: Martin Madsen <mj@factbird.com>
+Date: Wed, 23 Oct 2024 23:24:01 +0200
+Subject: [PATCH 1/3] Account for positional option values and support repeated
+ options in NODE_OPTIONS processing
+
+---
+ packages/next/src/server/lib/utils.test.ts | 28 ++++++-
+ packages/next/src/server/lib/utils.ts      | 97 +++++++++++-----------
+ 2 files changed, 73 insertions(+), 52 deletions(-)
+
+diff --git a/packages/next/src/server/lib/utils.test.ts b/packages/next/src/server/lib/utils.test.ts
+index 8fc199d8343..249c130c9b6 100644
+--- a/packages/next/src/server/lib/utils.test.ts
++++ b/packages/next/src/server/lib/utils.test.ts
+@@ -42,9 +42,9 @@ describe('tokenizeArgs', () => {
+ describe('formatNodeOptions', () => {
+   it('wraps values with spaces in quotes', () => {
+     const result = formatNodeOptions({
+-      spaces: 'thing with spaces',
+-      spacesAndQuotes: 'thing with "spaces"',
+-      normal: '1234',
++      '--spaces': ['thing with spaces'],
++      '--spacesAndQuotes': ['thing with "spaces"'],
++      '--normal': ['1234'],
+     })
+ 
+     expect(result).toBe(
+@@ -102,6 +102,28 @@ describe('getFormattedNodeOptionsWithoutInspect', () => {
+     )
+   })
+ 
++  describe('preserves options and assume the following positional to be the value', () => {
++    it('short', () => {
++      process.env.NODE_OPTIONS =
++        '-r ./first-file-to-require-with-node-require-option.js -r ./second-file-to-require-with-node-require-option.js'
++      const result = getFormattedNodeOptionsWithoutInspect()
++
++      expect(result).toBe(
++        '-r ./first-file-to-require-with-node-require-option.js -r ./second-file-to-require-with-node-require-option.js'
++      )
++    })
++
++    it('long', () => {
++      process.env.NODE_OPTIONS =
++        '--require ./first-file-to-require-with-node-require-option.js --require ./second-file-to-require-with-node-require-option.js'
++      const result = getFormattedNodeOptionsWithoutInspect()
++
++      expect(result).toBe(
++        '--require=./first-file-to-require-with-node-require-option.js --require=./second-file-to-require-with-node-require-option.js'
++      )
++    })
++  })
++
+   it('removes --inspect option with parameters', () => {
+     process.env.NODE_OPTIONS = '--other --inspect=0.0.0.0:1234 --additional'
+     const result = getFormattedNodeOptionsWithoutInspect()
+diff --git a/packages/next/src/server/lib/utils.ts b/packages/next/src/server/lib/utils.ts
+index 82e8808deaa..9d0c4c0b620 100644
+--- a/packages/next/src/server/lib/utils.ts
++++ b/packages/next/src/server/lib/utils.ts
+@@ -12,48 +12,40 @@ export function printAndExit(message: string, code = 1) {
+ }
+ 
+ const parseNodeArgs = (args: string[]) => {
+-  const { values, tokens } = parseArgs({ args, strict: false, tokens: true })
++  const { tokens } = parseArgs({ args, strict: false, tokens: true })
++
++  const parsedValues: { [optionName: string]: Array<string | boolean> } = {}
+ 
+   // For the `NODE_OPTIONS`, we support arguments with values without the `=`
+   // sign. We need to parse them manually.
+-  let orphan = null
+   for (let i = 0; i < tokens.length; i++) {
+-    const token = tokens[i]
++    const left = tokens[i]
++    const right = tokens[i + 1]
+ 
+-    if (token.kind === 'option-terminator') {
++    if (left.kind === 'option-terminator') {
+       break
+     }
+ 
+-    // When we encounter an option, if it's value is undefined, we should check
+-    // to see if the following tokens are positional parameters. If they are,
+-    // then the option is orphaned, and we can assign it.
+-    if (token.kind === 'option') {
+-      orphan = typeof token.value === 'undefined' ? token : null
+-      continue
+-    }
+-
+-    // If the token isn't a positional one, then we can't assign it to the found
+-    // orphaned option.
+-    if (token.kind !== 'positional') {
+-      orphan = null
+-      continue
+-    }
+-
+-    // If we don't have an orphan, then we can skip this token.
+-    if (!orphan) {
++    if (left.kind === 'positional') {
+       continue
+     }
+ 
+-    // If the token is a positional one, and it has a value, so add it to the
+-    // values object. If it already exists, append it with a space.
+-    if (orphan.name in values && typeof values[orphan.name] === 'string') {
+-      values[orphan.name] += ` ${token.value}`
+-    } else {
+-      values[orphan.name] = token.value
++    parsedValues[left.rawName] ||= []
++
++    // Once we identify an option, there can be an optional value, either passed
++    // explicitly to it, `--token=value` or as the following positional token,
++    // i.e. `--token value`
++    if (left.kind === 'option') {
++      if (right?.kind === 'positional') {
++        parsedValues[left.rawName].push(right.value)
++        i++
++      } else {
++        parsedValues[left.rawName].push(left.value || true)
++      }
+     }
+   }
+ 
+-  return values
++  return parsedValues
+ }
+ 
+ /**
+@@ -156,7 +148,9 @@ export const getParsedDebugAddress = (): DebugAddress => {
+   // We expect to find the debug port in one of these options. The first one
+   // found will be used.
+   const address =
+-    parsed.inspect ?? parsed['inspect-brk'] ?? parsed['inspect_brk']
++    parsed['--inspect'][0] ??
++    parsed['--inspect-brk'][0] ??
++    parsed['--inspect_brk'][0]
+ 
+   if (!address || typeof address !== 'string') {
+     return { host: undefined, port: 9229 }
+@@ -188,25 +182,30 @@ export const getFormattedDebugAddress = () =>
+  * @returns A string with the arguments.
+  */
+ export function formatNodeOptions(
+-  args: Record<string, string | boolean | undefined>
++  args: Record<string, Array<string | boolean | undefined>>
+ ): string {
+   return Object.entries(args)
+-    .map(([key, value]) => {
+-      if (value === true) {
+-        return `--${key}`
+-      }
+-
+-      if (value) {
+-        return `--${key}=${
+-          // Values with spaces need to be quoted. We use JSON.stringify to
+-          // also escape any nested quotes.
+-          value.includes(' ') && !value.startsWith('"')
+-            ? JSON.stringify(value)
+-            : value
+-        }`
+-      }
+-
+-      return null
++    .map(([key, values]) => {
++      return values
++        .map((value) => {
++          if (value === true) {
++            return key
++          }
++
++          if (value) {
++            // Values with spaces need to be quoted. We use JSON.stringify to
++            // also escape any nested quotes.
++            const encodedValue =
++              value.includes(' ') && !value.startsWith('"')
++                ? JSON.stringify(value)
++                : value
++
++            return `${key}${key.startsWith('--') ? '=' : ' '}${encodedValue}`
++          }
++
++          return null
++        })
++        .join(' ')
+     })
+     .filter((arg) => arg !== null)
+     .join(' ')
+@@ -225,9 +224,9 @@ export function getParsedNodeOptionsWithoutInspect() {
+   const parsed = parseNodeArgs(args)
+ 
+   // Remove inspect options.
+-  delete parsed.inspect
+-  delete parsed['inspect-brk']
+-  delete parsed['inspect_brk']
++  delete parsed['--inspect']
++  delete parsed['--inspect-brk']
++  delete parsed['--inspect_brk']
+ 
+   return parsed
+ }
+-- 
+2.32.0 (Apple Git-132)
+
+
+From c8007be0c7b7fb7aca47973c10426dd4552fb5ac Mon Sep 17 00:00:00 2001
+From: Martin Madsen <mj@factbird.com>
+Date: Wed, 23 Oct 2024 23:33:37 +0200
+Subject: [PATCH 2/3] Safely extract the first inspect value
+
+---
+ packages/next/src/server/lib/utils.ts | 11 ++++++-----
+ 1 file changed, 6 insertions(+), 5 deletions(-)
+
+diff --git a/packages/next/src/server/lib/utils.ts b/packages/next/src/server/lib/utils.ts
+index 9d0c4c0b620..882bcb5ca62 100644
+--- a/packages/next/src/server/lib/utils.ts
++++ b/packages/next/src/server/lib/utils.ts
+@@ -148,9 +148,9 @@ export const getParsedDebugAddress = (): DebugAddress => {
+   // We expect to find the debug port in one of these options. The first one
+   // found will be used.
+   const address =
+-    parsed['--inspect'][0] ??
+-    parsed['--inspect-brk'][0] ??
+-    parsed['--inspect_brk'][0]
++    parsed['--inspect']?.[0] ??
++    parsed['--inspect-brk']?.[0] ??
++    parsed['--inspect_brk']?.[0]
+ 
+   if (!address || typeof address !== 'string') {
+     return { host: undefined, port: 9229 }
+@@ -271,8 +271,9 @@ export function getNodeDebugType(): NodeInspectType {
+ 
+   const parsed = parseNodeArgs(args)
+ 
+-  if (parsed.inspect) return 'inspect'
+-  if (parsed['inspect-brk'] || parsed['inspect_brk']) return 'inspect-brk'
++  if (parsed['--inspect']?.length) return 'inspect'
++  if (parsed['--inspect-brk']?.length || parsed['--inspect_brk']?.length)
++    return 'inspect-brk'
+ }
+ 
+ /**
+-- 
+2.32.0 (Apple Git-132)
+
+
+From 99a20188441a8a7a4e9f295dfb9a843f1bd37ea8 Mon Sep 17 00:00:00 2001
+From: Ryan Underwood <runderworld@gmail.com>
+Date: Wed, 23 Jul 2025 17:50:51 -0700
+Subject: [PATCH 3/3] Additional work needed.
+
+---
+ packages/next/src/cli/next-dev.ts     | 6 +++---
+ packages/next/src/lib/worker.ts       | 4 ++--
+ packages/next/src/server/lib/utils.ts | 3 +++
+ 3 files changed, 8 insertions(+), 5 deletions(-)
+
+diff --git a/packages/next/src/cli/next-dev.ts b/packages/next/src/cli/next-dev.ts
+index e36a6975ce3..35d15907e85 100644
+--- a/packages/next/src/cli/next-dev.ts
++++ b/packages/next/src/cli/next-dev.ts
+@@ -262,7 +262,7 @@ const nextDev = async (
+         const totalMemInMB = Math.floor(totalMem / 1024 / 1024)
+         maxOldSpaceSize = Math.floor(totalMemInMB * 0.5).toString()
+ 
+-        nodeOptions['max-old-space-size'] = maxOldSpaceSize
++        nodeOptions['max-old-space-size'] = [maxOldSpaceSize]
+ 
+         // Ensure the max_old_space_size is not also set.
+         delete nodeOptions['max_old_space_size']
+@@ -271,13 +271,13 @@ const nextDev = async (
+       if (options.disableSourceMaps) {
+         delete nodeOptions['enable-source-maps']
+       } else {
+-        nodeOptions['enable-source-maps'] = true
++        nodeOptions['enable-source-maps'] = [true]
+       }
+ 
+       if (nodeDebugType) {
+         const address = getParsedDebugAddress()
+         address.port = address.port + 1
+-        nodeOptions[nodeDebugType] = formatDebugAddress(address)
++        nodeOptions[nodeDebugType] = [formatDebugAddress(address)]
+       }
+ 
+       child = fork(startServerPath, {
+diff --git a/packages/next/src/lib/worker.ts b/packages/next/src/lib/worker.ts
+index c86784fb951..bf8b6e37957 100644
+--- a/packages/next/src/lib/worker.ts
++++ b/packages/next/src/lib/worker.ts
+@@ -89,12 +89,12 @@ export class Worker {
+           // current process runs on `address.port`
+           1 +
+           debuggerPortOffset
+-        nodeOptions[nodeDebugType] = formatDebugAddress(address)
++        nodeOptions[nodeDebugType] = [formatDebugAddress(address)]
+       }
+     }
+ 
+     if (enableSourceMaps) {
+-      nodeOptions['enable-source-maps'] = true
++      nodeOptions['enable-source-maps'] = [true]
+     }
+ 
+     if (isolatedMemory) {
+diff --git a/packages/next/src/server/lib/utils.ts b/packages/next/src/server/lib/utils.ts
+index 882bcb5ca62..4e788947ffa 100644
+--- a/packages/next/src/server/lib/utils.ts
++++ b/packages/next/src/server/lib/utils.ts
+@@ -243,6 +243,9 @@ export function getFormattedNodeOptionsWithoutInspect() {
+ 
+   return formatNodeOptions(args)
+ }
++enum PatchFlags {
++  RunderworldNodeOptions = 'runderworld.node.options.patch'
++}
+ 
+ /**
+  * Check if the value is a valid positive integer and parse it. If it's not, it will throw an error.
+-- 
+2.32.0 (Apple Git-132)
+
