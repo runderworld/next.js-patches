@@ -565,6 +565,9 @@ if [ "$DRY_RUN" = false ]; then
   else
     echo "🧪 Preserving cloned workspace for reuse."
   fi
+
+  echo "🔀 Switching back to main branch..."
+  git checkout main
 else
   echo "🧪 Dry-run: preserving cloned workspace for inspection."
 fi
