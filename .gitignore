@@ -6,4 +6,5 @@ dist/
 *.tgz
 /package/
 .nextjs-fork/
-
+.patch-temp/
+patches/dist-*
