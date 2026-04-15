@@ -349,11 +349,14 @@ cat > package.json <<EOF
 }
 EOF
 
-if ! npm install --silent; then
-  echo "🛑 Failed to install registry version of Next.js"
-  popd > /dev/null
-  rm -rf "$PATCH_TEMP"
-  exit 1
+if ! npm install 2>&1; then
+  echo "⚠️ npm install failed, retrying once..."
+  if ! npm install 2>&1; then
+    echo "🛑 Failed to install registry version of Next.js"
+    popd > /dev/null
+    rm -rf "$PATCH_TEMP"
+    exit 1
+  fi
 fi
 
 # Step 4(b): Initialize Git and commit only the files we'll patch (clean baseline)
