@@ -1,4 +1,4 @@
-From 2289b440ada67df823a5f026f2d69efbc0e94e2a Mon Sep 17 00:00:00 2001
+From 04963434b8c6b0b5ec8166e16b7b9c52a283e168 Mon Sep 17 00:00:00 2001
 From: Ryan Underwood <runderworld@gmail.com>
 Date: Tue, 14 Apr 2026 18:59:36 -0700
 Subject: [PATCH 1/2] fix: correct parseNodeArgs and formatNodeOptions
@@ -568,7 +568,7 @@ index 3bc94b9d7d..76f47a3e55 100644
 2.32.0 (Apple Git-132)
 
 
-From 07f85fddc93cb5c49fe46a00e87609e988cfbd21 Mon Sep 17 00:00:00 2001
+From f57c5f5d5ab972fcbe8c78a9208423e115ca0539 Mon Sep 17 00:00:00 2001
 From: Ryan Underwood <runderworld@gmail.com>
 Date: Tue, 14 Apr 2026 19:00:48 -0700
 Subject: [PATCH 2/2] chore: add build-time fingerprint for patch verification
