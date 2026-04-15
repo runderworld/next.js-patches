@@ -359,6 +359,7 @@ fi
 echo "🧩 Generating dist patch with patch-package..."
 
 PATCH_TEMP="$PATCHES_REPO/.patch-temp"
+rm -rf "$PATCH_TEMP"
 mkdir -p "$PATCH_TEMP"
 pushd "$PATCH_TEMP" > /dev/null
 
