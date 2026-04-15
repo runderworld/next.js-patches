@@ -395,14 +395,23 @@ for file in "${PATCHED_FILES[@]}"; do
 done
 git commit -q -m "clean next install"
 
-# Step 4(c): Overwrite dist/ with your patched output
-rm -rf node_modules/next/dist
-cp -R "$NEXTJS_REPO/packages/next/dist" "node_modules/next/"
-echo "📁 Verifying copied dist files:"
-ls node_modules/next/dist/cli/next-dev.js \
-  || echo "❌ Missing: next-dev.js"
-ls node_modules/next/dist/compiled/next-server/pages.runtime.dev.js \
-  || echo "❌ Missing: pages.runtime.dev.js"
+# Step 4(c): Overwrite only the patched files with your patched output
+# (Copying the entire dist tree causes git to choke on long filenames
+#  inside dist/compiled when patch-package tries to diff.)
+echo "📁 Copying patched files:"
+for file in "${PATCHED_FILES[@]}"; do
+  src="$NEXTJS_REPO/packages/next/${file#node_modules/next/}"
+  if [[ -f "$src" ]]; then
+    mkdir -p "$(dirname "$file")"
+    cp "$src" "$file"
+    echo "  ✓ $file"
+  else
+    echo "❌ Missing patched source: $src"
+    popd > /dev/null
+    rm -rf "$PATCH_TEMP"
+    exit 1
+  fi
+done
 
 # Step 4(d): Stage only the affected patched files
 for file in "${PATCHED_FILES[@]}"; do
