@@ -38,6 +38,32 @@ resolve_dist_patch_name() {
   DIST_PATCH_FILE="$PATCHES_DIR/$DIST_PATCH_NAME"
 }
 
+# Parse flags
+PUBLISH_VERSION_OVERRIDE=""
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --publish-version)
+      if [[ -z "${2:-}" || "${2:-}" == --* ]]; then
+        echo "❌ --publish-version requires a version argument (e.g. --publish-version 16.2.3-1)" >&2
+        exit 1
+      fi
+      shift
+      PUBLISH_VERSION_OVERRIDE="$1"
+      ;;
+    --help)
+      echo "Usage: ./publish-only.sh [--publish-version <ver>]"
+      echo ""
+      echo "Options:"
+      echo "  --publish-version <ver>  Override the NPM publish version (e.g. 16.2.3-1)."
+      echo "                           Use when the original version was already published."
+      echo "  --help                   Show this help message"
+      exit 0
+      ;;
+  esac
+  shift
+done
+
 # Prompt for tag
 DEFAULT_TAG="$(npm info next dist-tags.canary 2>/dev/null || echo '16.2.0-canary.42')"
 DEFAULT_TAG="v${DEFAULT_TAG#v}"
@@ -47,16 +73,24 @@ echo "ℹ️ @runderworld/next.js-patches@latest: $(npm info @runderworld/next.j
 read -rp "📦 Enter Next.js tag to publish [default: $DEFAULT_TAG]: " TAG
 TAG="${TAG:-$DEFAULT_TAG}"
 [[ "$TAG" != v* ]] && TAG="v$TAG"
-VERSION="${TAG#v}"
+
+# Derive publish version — defaults to upstream tag unless overridden
+if [[ -n "$PUBLISH_VERSION_OVERRIDE" ]]; then
+  VERSION="${PUBLISH_VERSION_OVERRIDE#v}"
+  echo "📦 Publish version overridden: ${VERSION} (upstream tag: ${TAG})"
+else
+  VERSION="${TAG#v}"
+fi
 
 # Resolve patch filename
 resolve_dist_patch_name "$TAG"
 
-# Validate branch
-EXPECTED_BRANCH="patch-${TAG}"
+# Validate branch — accept either the publish branch or the upstream tag branch
+EXPECTED_BRANCH="patch-v${VERSION}"
+ALT_BRANCH="patch-${TAG}"
 CURRENT_BRANCH="$(git rev-parse --abbrev-ref HEAD)"
-if [ "$CURRENT_BRANCH" != "$EXPECTED_BRANCH" ]; then
-  echo "❌ Expected branch '$EXPECTED_BRANCH' but currently on '$CURRENT_BRANCH'" >&2
+if [ "$CURRENT_BRANCH" != "$EXPECTED_BRANCH" ] && [ "$CURRENT_BRANCH" != "$ALT_BRANCH" ]; then
+  echo "❌ Expected branch '$EXPECTED_BRANCH' (or '$ALT_BRANCH') but currently on '$CURRENT_BRANCH'" >&2
   exit 1
 fi
 
