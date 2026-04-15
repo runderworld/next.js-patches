@@ -112,3 +112,7 @@ popd >/dev/null
 # Cleanup
 rm -rf "$PACKAGE_DIR"
 
+# Switch back to main branch
+echo "🔀 Switching back to main branch..."
+git checkout main
+
