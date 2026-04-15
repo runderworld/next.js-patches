@@ -16,12 +16,41 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 PATCHES_DIR="$REPO_ROOT/patches"
 PACKAGE_DIR="$REPO_ROOT/package"
 
+# ── Resolve dist patch filename from tag ─────────────────────────────────────
+# Matches the naming convention in generate-and-apply-patch.sh:
+#   dist--fix-node-options-v<major>-<minor>.patch
+resolve_dist_patch_name() {
+  local tag="$1"
+  local major minor
+  major="$(echo "${tag#v}" | cut -d. -f1)"
+  minor="$(echo "${tag#v}" | cut -d. -f2)"
+
+  case "$major" in
+    15|16) ;;
+    *)
+      echo "🛑 Unsupported major version: $major (tag: $tag)" >&2
+      exit 1
+      ;;
+  esac
+
+  SRC_PATCH_NAME="fix-node-options-v${major}-${minor}.patch"
+  DIST_PATCH_NAME="dist--${SRC_PATCH_NAME}"
+  DIST_PATCH_FILE="$PATCHES_DIR/$DIST_PATCH_NAME"
+}
+
 # Prompt for tag
-DEFAULT_TAG="v15.5.1-canary.27"
+DEFAULT_TAG="$(npm info next dist-tags.canary 2>/dev/null || echo '16.2.0-canary.42')"
+DEFAULT_TAG="v${DEFAULT_TAG#v}"
+echo "ℹ️ next@latest:   $(npm info next dist-tags.latest 2>/dev/null || echo 'n/a')"
+echo "ℹ️ next@canary:   $(npm info next dist-tags.canary 2>/dev/null || echo 'n/a')"
+echo "ℹ️ @runderworld/next.js-patches@latest: $(npm info @runderworld/next.js-patches dist-tags.latest 2>/dev/null || echo 'n/a')"
 read -rp "📦 Enter Next.js tag to publish [default: $DEFAULT_TAG]: " TAG
 TAG="${TAG:-$DEFAULT_TAG}"
+[[ "$TAG" != v* ]] && TAG="v$TAG"
 VERSION="${TAG#v}"
-PATCH_FILE="$PATCHES_DIR/dist-${TAG}-pr71759++.patch"
+
+# Resolve patch filename
+resolve_dist_patch_name "$TAG"
 
 # Validate branch
 EXPECTED_BRANCH="patch-${TAG}"
@@ -32,22 +61,24 @@ if [ "$CURRENT_BRANCH" != "$EXPECTED_BRANCH" ]; then
 fi
 
 # Validate patch file
-if [ ! -f "$PATCH_FILE" ]; then
-  echo "❌ Patch file not found: $PATCH_FILE" >&2
+if [ ! -f "$DIST_PATCH_FILE" ]; then
+  echo "❌ Patch file not found: $DIST_PATCH_FILE" >&2
+  echo "   Available patches:"
+  ls -1 "$PATCHES_DIR"/dist--*.patch 2>/dev/null || echo "   (none)"
   exit 1
 fi
 
 # Prepare package directory
 rm -rf "$PACKAGE_DIR"
 mkdir -p "$PACKAGE_DIR"
-cp "$PATCH_FILE" "$PACKAGE_DIR/dist.patch"
+cp "$DIST_PATCH_FILE" "$PACKAGE_DIR/dist.patch"
 
 # Create package.json
 cat > "$PACKAGE_DIR/package.json" <<EOF
 {
   "name": "@runderworld/next.js-patches",
   "version": "$VERSION",
-  "description": "Dist patch overlay for Next.js $TAG",
+  "description": "Dist patch overlay for Next.js $TAG with ${SRC_PATCH_NAME%.patch}",
   "main": "dist.patch",
   "files": ["dist.patch"],
   "keywords": ["next.js", "patch", "dist", "overlay", "enterprise"],
@@ -71,7 +102,7 @@ fi
 
 # We're now ready to publish
 if npm publish --access public; then
-  echo "✅ Published successfully."
+  echo "✅ Published @runderworld/next.js-patches@$VERSION successfully."
 else
   echo "❌ NPM publish failed." >&2
   exit 1
