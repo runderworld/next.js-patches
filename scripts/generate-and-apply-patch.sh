@@ -134,20 +134,28 @@ resolve_patch_config() {
 DRY_RUN=false
 FORCE_REFRESH=false
 CLEAN_NEXT=false
+PUBLISH_VERSION_OVERRIDE=""
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --dry-run) DRY_RUN=true ;;
     --force-refresh) FORCE_REFRESH=true ;;
     --clean-next) CLEAN_NEXT=true ;;
+    --publish-version)
+      shift
+      PUBLISH_VERSION_OVERRIDE="$1"
+      ;;
     --help)
-      echo "Usage: ./generate-and-apply-patch.sh [--dry-run] [--force-refresh] [--clean-next]"
+      echo "Usage: ./generate-and-apply-patch.sh [--dry-run] [--force-refresh] [--clean-next] [--publish-version <ver>]"
       echo ""
       echo "Options:"
-      echo "  --dry-run        Run without committing or publishing"
-      echo "  --force-refresh  Delete and reclone Next.js workspace"
-      echo "  --clean-next     Force clean rebuild of Next.js (dist + turbo cache)"
-      echo "  --help           Show this help message"
+      echo "  --dry-run                Run without committing or publishing"
+      echo "  --force-refresh          Delete and reclone Next.js workspace"
+      echo "  --clean-next             Force clean rebuild of Next.js (dist + turbo cache)"
+      echo "  --publish-version <ver>  Override the NPM publish version (e.g. 16.2.3-1)."
+      echo "                           Use when the original version was already published."
+      echo "                           The upstream tag is still used for patch generation."
+      echo "  --help                   Show this help message"
       exit 0
       ;;
   esac
@@ -166,6 +174,17 @@ TAG="${TAG:-$DEFAULT_TAG}"
 
 # Resolve v15/v16 patch config based on tag
 resolve_patch_config "$TAG"
+
+# Derive publish version — defaults to the upstream tag version unless overridden.
+# PUBLISH_VERSION  = semver string for NPM (e.g. "16.2.3" or "16.2.3-1")
+# PUBLISH_TAG      = git tag for the utility repo (e.g. "v16.2.3" or "v16.2.3-1")
+if [[ -n "$PUBLISH_VERSION_OVERRIDE" ]]; then
+  PUBLISH_VERSION="${PUBLISH_VERSION_OVERRIDE#v}"
+  echo "📦 Publish version overridden: ${PUBLISH_VERSION} (upstream tag: ${TAG})"
+else
+  PUBLISH_VERSION="${TAG#v}"
+fi
+PUBLISH_TAG="v${PUBLISH_VERSION}"
 
 BRANCH_NAME="patch-${TAG}"
 # Dist patch: dist--<source-patch-name>  (e.g. dist--fix-node-options-v16-2.patch)
@@ -237,10 +256,11 @@ echo "🔍 Checking repo cleanliness..."
 check_clean "$NEXTJS_REPO" "Next.js"
 check_clean "$PATCHES_REPO" "Utility"
 
-# Step 0.5: Refuse to overwrite existing patch branch
-if git -C "$PATCHES_REPO" rev-parse --verify --quiet "$BRANCH_NAME"; then
-  echo "🛑 Branch $BRANCH_NAME already exists. Refusing to overwrite."
-  echo "This patch version has already been published. No variants allowed."
+# Step 0.5: Refuse to overwrite existing patch branch (utility repo)
+PUBLISH_BRANCH="patch-v${PUBLISH_VERSION}"
+if git -C "$PATCHES_REPO" rev-parse --verify --quiet "$PUBLISH_BRANCH"; then
+  echo "🛑 Branch $PUBLISH_BRANCH already exists in utility repo. Refusing to overwrite."
+  echo "   Use --publish-version to publish under a different version string."
   exit 1
 fi
 
@@ -432,7 +452,7 @@ fi
 echo "✅ Reached end of patch generation block"
 
 STRIPPED_TAG="${TAG#v}"
-BRANCH="patch-v${STRIPPED_TAG}"
+BRANCH="patch-v${PUBLISH_VERSION}"
 DIST_PATCH_NAME="$(basename "$DIST_PATCH_PATH")"
 
 # ── Cleanup helper ──────────────────────────────────────────────────────────
@@ -445,9 +465,9 @@ cleanup_on_failure() {
   if [[ "$scope" == "full" ]]; then
     echo "🧹 Rolling back git operations in patches repo..."
     # Remote tag
-    git push origin ":refs/tags/${TAG}" 2>/dev/null || true
+    git push origin ":refs/tags/${PUBLISH_TAG}" 2>/dev/null || true
     # Local tag
-    git tag -d "${TAG}" 2>/dev/null || true
+    git tag -d "${PUBLISH_TAG}" 2>/dev/null || true
     # Remote branch
     git push origin --delete "${BRANCH}" 2>/dev/null || true
     # Switch off the branch before deleting it
@@ -487,7 +507,7 @@ if [[ -f "$MANIFEST_PATH" ]]; then
 fi
 
 echo "📦 Committing patches"
-git commit -q -m "chore: add source & dist patches for next ${STRIPPED_TAG}"
+git commit -q -m "chore: add source & dist patches for next ${STRIPPED_TAG} (publish: ${PUBLISH_VERSION})"
 
 if [ "$DRY_RUN" = false ]; then
   if ! git push --set-upstream origin "${BRANCH}"; then
@@ -496,29 +516,29 @@ if [ "$DRY_RUN" = false ]; then
     exit 1
   fi
 
-  git tag -f "${TAG}"
+  git tag -f "${PUBLISH_TAG}"
 
-  if ! git push origin "${TAG}"; then
-    echo "🛑 git push failed (tag: ${TAG})." >&2
+  if ! git push origin "${PUBLISH_TAG}"; then
+    echo "🛑 git push failed (tag: ${PUBLISH_TAG})." >&2
     cleanup_on_failure full
     exit 1
   fi
 
-  echo "🏷️ Git tag created: ${TAG}"
+  echo "🏷️ Git tag created: ${PUBLISH_TAG}"
 else
   echo "🧪 Dry-run: skipping git push and tag"
 fi
 
 # Step 6: Prepare and publish NPM package
 if [ "$DRY_RUN" = false ]; then
-  echo "📦 Preparing NPM package for version: ${STRIPPED_TAG}"
+  echo "📦 Preparing NPM package for version: ${PUBLISH_VERSION}"
   mkdir -p "$PACKAGE_DIR"
   cp "$DIST_PATCH_PATH" "$PACKAGE_DIR/dist.patch"
 
   cat > "$PACKAGE_DIR/package.json" <<EOF
 {
   "name": "@runderworld/next.js-patches",
-  "version": "${STRIPPED_TAG}",
+  "version": "${PUBLISH_VERSION}",
   "description": "Dist patch overlay for Next.js ${TAG} with ${SRC_PATCH_NAME%.patch}",
   "main": "dist.patch",
   "files": ["dist.patch"],
@@ -542,7 +562,7 @@ EOF
     exit 1
   fi
 
-  echo "✅ Patch published as @runderworld/next.js-patches@${STRIPPED_TAG}"
+  echo "✅ Patch published as @runderworld/next.js-patches@${PUBLISH_VERSION}"
   popd > /dev/null
   rm -rf "$PACKAGE_DIR"
 else
