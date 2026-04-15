@@ -356,9 +356,18 @@ if ! npm install --silent; then
   exit 1
 fi
 
-# Step 4(b): Initialize Git and commit clean baseline
+# Step 4(b): Initialize Git and commit only the files we'll patch (clean baseline)
 git init -q
-git add node_modules/next
+for file in "${PATCHED_FILES[@]}"; do
+  if [[ -f "$file" ]]; then
+    git add "$file"
+  else
+    echo "❌ Missing expected baseline file: $file"
+    popd > /dev/null
+    rm -rf "$PATCH_TEMP"
+    exit 1
+  fi
+done
 git commit -q -m "clean next install"
 
 # Step 4(c): Overwrite dist/ with your patched output
@@ -370,16 +379,12 @@ ls node_modules/next/dist/cli/next-dev.js \
 ls node_modules/next/dist/compiled/next-server/pages.runtime.dev.js \
   || echo "❌ Missing: pages.runtime.dev.js"
 
-# Step 4(d): Unstage everything and stage only the affected files
-git reset
-
-# PATCHED_FILES is set by resolve_patch_config()
-
+# Step 4(d): Stage only the affected patched files
 for file in "${PATCHED_FILES[@]}"; do
   if [[ -f "$file" ]]; then
     git add "$file"
   else
-    echo "❌ Missing expected file: $file"
+    echo "❌ Missing expected patched file: $file"
     popd > /dev/null
     rm -rf "$PATCH_TEMP"
     exit 1
