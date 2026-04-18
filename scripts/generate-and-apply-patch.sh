@@ -32,15 +32,47 @@ FINGERPRINT_TOKEN="runderworld.node.options.patch"
 
 resolve_patch_config() {
   local tag="$1"
-  local major minor
+  local major minor patch_minor patch_variant
   major="$(echo "${tag#v}" | cut -d. -f1)"
   minor="$(echo "${tag#v}" | cut -d. -f2)"
 
+  # ── Resolve patch variant by minor-range fallback ─────────────────────
+  # A defined variant applies from its minor up to (but not including)
+  # the next higher defined minor. The highest defined variant applies to
+  # all higher minors in the same major.
+  case "$major" in
+    15)
+      # Defined variants: 15.4+
+      if (( minor >= 4 )); then
+        patch_minor=4
+      fi
+      ;;
+    16)
+      # Defined variants: 16.0-16.1 => 16.0, 16.2+ => 16.2
+      if (( minor >= 2 )); then
+        patch_minor=2
+      elif (( minor >= 0 )); then
+        patch_minor=0
+      fi
+      ;;
+    *)
+      patch_minor=""
+      ;;
+  esac
+
+  if [[ -z "${patch_minor:-}" ]]; then
+    echo "🛑 No patch variant mapped for v${major}.${minor} (tag: $tag)"
+    echo "   Known lower bounds: 15.4, 16.0, 16.2"
+    exit 1
+  fi
+
+  patch_variant="${major}.${patch_minor}"
+
   # ── Naming convention ─────────────────────────────────────────────────
-  # Branch:     fix/node-options-v<major>-<minor>
-  # Patch file: fix-node-options-v<major>-<minor>.patch
-  PR_BRANCH="fix/node-options-v${major}-${minor}"
-  SRC_PATCH_NAME="fix-node-options-v${major}-${minor}.patch"
+  # Branch:     fix/node-options-v<major>-<resolved-minor>
+  # Patch file: fix-node-options-v<major>-<resolved-minor>.patch
+  PR_BRANCH="fix/node-options-v${major}-${patch_minor}"
+  SRC_PATCH_NAME="fix-node-options-v${major}-${patch_minor}.patch"
 
   # ── Dist files affected (shared across all versions) ──────────────────
   local shared_files=(
@@ -95,7 +127,7 @@ resolve_patch_config() {
   # ── Hardcoded fix commits per major.minor ────────────────────────────────
   # These are the commits on origin/<PR_BRANCH> AFTER the base tag commit.
   # Order: oldest → newest (cherry-pick order).
-  case "${major}.${minor}" in
+  case "$patch_variant" in
     15.4)
       PR_COMMITS=(
         2f67c2628d   # Account for positional option values and support repeated options
@@ -117,7 +149,7 @@ resolve_patch_config() {
       )
       ;;
     *)
-      echo "🛑 No fix commits defined for v${major}.${minor} (tag: $tag)"
+      echo "🛑 No fix commits defined for resolved variant v${patch_variant} (tag: $tag)"
       echo "   Known variants: 15.4, 16.0, 16.2"
       exit 1
       ;;
@@ -125,6 +157,7 @@ resolve_patch_config() {
 
   PATCH_FILE="$PATCHES_REPO/patches/$SRC_PATCH_NAME"
   echo "📋 Resolved patch config for v${major}.${minor}:"
+  echo "   Patch variant: v${patch_variant}"
   echo "   Source patch:  $SRC_PATCH_NAME"
   echo "   PR branch:    $PR_BRANCH"
   echo "   Fix commits:  ${#PR_COMMITS[@]}"
