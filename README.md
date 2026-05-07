@@ -42,6 +42,16 @@ This utility automates the process of generating, verifying, and publishing dist
 - `patches/manifest.json` — Metadata registry
 - `@runderworld/next.js-patches@<version>` — Published NPM package
 
+## 🏷 Adding a new variant
+
+When a new major/minor variant is required, update `scripts/generate-and-apply-patch.sh` to add the new `patch_minor` mapping and hardcoded commit list for that resolved variant.
+
+Then rerun the script for the first upstream tag in that variant. The script will generate both the source patch and the `dist--*.patch` file.
+
+Because `publish-only.sh` relies on `patches/dist--*.patch`, the generated dist patch must be committed along with the variant script changes.
+
+If you later rerun the script for the same variant, make sure the `dist--*.patch` file is kept under version control so the published package remains reproducible.
+
 ## 🧼 Workspace Hygiene
 
 Before patching begins, the script verifies:
