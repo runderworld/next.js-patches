@@ -339,7 +339,9 @@ git branch -D "$BRANCH_NAME" 2>/dev/null || true
 git checkout -b "$BRANCH_NAME" "$TAG"
 
 echo "📦 Installing dependencies..."
-pnpm install --frozen-lockfile
+# Run pnpm non-interactively to avoid prompting about removing modules directories
+# See: https://github.com/pnpm/pnpm/issues/7727
+pnpm install --frozen-lockfile --config.confirmModulesPurge=false
 
 echo "🔨 Building original Next.js (turbo run build --filter next)..."
 # direct Turbo CLI rebuild of only the next package
