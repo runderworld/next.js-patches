@@ -199,14 +199,26 @@ while [[ $# -gt 0 ]]; do
   shift
 done
 
-# Prompt for upstream tag (and provide current canary version as default)
+# Resolve upstream tag to patch (interactive prompt omitted in CI)
 DEFAULT_TAG="$(npm info next dist-tags.canary 2>/dev/null || echo '16.2.0-canary.42')"
 DEFAULT_TAG="v${DEFAULT_TAG#v}"  # ensure it starts with 'v'
 echo "ℹ️ next@latest:   $(npm info next dist-tags.latest 2>/dev/null || echo 'n/a')"
 echo "ℹ️ next@canary:   $(npm info next dist-tags.canary 2>/dev/null || echo 'n/a')"
 echo "ℹ️ @runderworld/next.js-patches@latest: $(npm info @runderworld/next.js-patches dist-tags.latest 2>/dev/null || echo 'n/a')"
-read -p "🔖 Enter Next.js tag to patch [default: $DEFAULT_TAG]: " TAG
-TAG="${TAG:-$DEFAULT_TAG}"
+
+# Allow TAG to be passed in via env or --tag to support non-interactive CI runs.
+if [[ -n "${TAG:-}" ]]; then
+  echo "🔖 Using TAG from environment: $TAG"
+elif [[ -n "${CI:-}" && -n "${DEFAULT_TAG:-}" ]]; then
+  # In CI default to the canary tag when not provided
+  TAG="$DEFAULT_TAG"
+  echo "🔖 CI detected — using default TAG: $TAG"
+else
+  # Interactive fallback
+  read -p "🔖 Enter Next.js tag to patch [default: $DEFAULT_TAG]: " TAG
+  TAG="${TAG:-$DEFAULT_TAG}"
+fi
+
 [[ "$TAG" != v* ]] && TAG="v$TAG"
 
 # Resolve v15/v16 patch config based on tag
@@ -241,7 +253,12 @@ if [ -d "$NEXTJS_REPO/.git" ]; then
   popd > /dev/null
 else
   echo "🌐 Cloning Next.js fork into workspace..."
-  git clone git@github.com:runderworld/next.js.git "$NEXTJS_REPO"
+  # Allow CI to use HTTPS clone if SSH is not available. Set CLONE_PROTOCOL=https to force HTTPS.
+  if [[ "${CLONE_PROTOCOL:-}" == "https" || -n "${CI:-}" && -z "${GIT_SSH_COMMAND:-}" ]]; then
+    git clone https://github.com/runderworld/next.js.git "$NEXTJS_REPO"
+  else
+    git clone git@github.com:runderworld/next.js.git "$NEXTJS_REPO"
+  fi
 fi
 
 # Fetch the fix branch so cherry-pick can resolve the commit hashes
