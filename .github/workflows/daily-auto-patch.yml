@@ -1,0 +1,59 @@
+name: Daily Auto Patch
+
+on:
+  schedule:
+    # Runs daily at 06:00 UTC
+    - cron: '0 6 * * *'
+  workflow_dispatch: {}
+
+jobs:
+  generate-and-publish:
+    runs-on: ubuntu-latest
+    env:
+      # Ensure we run in CI-mode inside the script
+      CI: true
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          registry-url: 'https://registry.npmjs.org'
+
+      - name: Install pnpm
+        run: npm install -g pnpm
+
+      - name: Resolve upstream tag (canary)
+        id: resolve_tag
+        run: |
+          TAG=$(npm info next dist-tags.canary 2>/dev/null || echo '16.2.0-canary.42')
+          # Normalize to start with 'v'
+          TAG="v${TAG#v}"
+          echo "Resolved TAG=$TAG"
+          echo "TAG=$TAG" >> $GITHUB_ENV
+
+      - name: Preflight: configure npm auth and verify identity
+        env:
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          if [ -z "${NPM_TOKEN:-}" ]; then
+            echo "❌ NPM_TOKEN secret is not set."
+            exit 1
+          fi
+          # write user-scoped npmrc for runner (do not commit)
+          echo "//registry.npmjs.org/:_authToken=${NPM_TOKEN}" > ~/.npmrc
+          npm whoami
+
+      - name: Make script executable
+        run: chmod +x ./scripts/generate-and-apply-patch.sh
+
+      - name: Run generate-and-apply-patch script
+        env:
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+          CLONE_PROTOCOL: https
+          TAG: ${{ env.TAG }}
+        run: |
+          set -o pipefail
+          ./scripts/generate-and-apply-patch.sh
