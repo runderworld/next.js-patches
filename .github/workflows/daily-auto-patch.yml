@@ -107,6 +107,20 @@ jobs:
           to: ${{ secrets.NOTIFY_TO }}
           from: ${{ secrets.NOTIFY_FROM }}
 
+      - name: Create GitHub Release
+        if: success()
+        uses: actions/create-release@v1
+        with:
+          tag_name: ${{ env.TAG }}
+          release_name: "Automated patch ${{ env.TAG }}"
+          body: |
+            Automated patch generated for Next.js tag ${{ env.TAG }}.
+            The patches and dist artifacts are available in the repository under the `patches/` directory.
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Notify failure via email
         if: failure()
         uses: dawidd6/action-send-mail@v3
