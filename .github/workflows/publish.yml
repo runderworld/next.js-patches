@@ -1,0 +1,32 @@
+name: Publish patch package
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          registry-url: 'https://registry.npmjs.org'
+          node-auth-token: ${{ secrets.NPM_TOKEN }}
+
+      - name: Install pnpm
+        run: npm install -g pnpm
+
+      - name: Publish package
+        env:
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          # Adjust path if package.json lives in a subfolder
+          cd package || true
+          pnpm install --frozen-lockfile || true
+          npm publish --access public
