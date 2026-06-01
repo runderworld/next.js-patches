@@ -34,6 +34,27 @@ jobs:
           echo "Resolved TAG=$TAG"
           echo "TAG=$TAG" >> $GITHUB_ENV
 
+      - name: Load last published tag
+        id: load_last
+        run: |
+          LAST_FILE=".last_published_tag"
+          if [ -f "$LAST_FILE" ]; then
+            LAST_TAG=$(cat "$LAST_FILE" | tr -d '\n' || true)
+          else
+            LAST_TAG=""
+          fi
+          echo "LAST_TAG=$LAST_TAG" >> $GITHUB_ENV
+
+      - name: Skip if unchanged
+        id: skip_check
+        run: |
+          echo "Current TAG: ${TAG}"
+          echo "Last published TAG: ${LAST_TAG}"
+          if [ "${TAG}" = "${LAST_TAG}" ]; then
+            echo "No new tag detected; skipping patch generation."
+            exit 0
+          fi
+
       - name: Preflight: configure npm auth and verify identity
         env:
           NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
@@ -50,6 +71,7 @@ jobs:
         run: chmod +x ./scripts/generate-and-apply-patch.sh
 
       - name: Run generate-and-apply-patch script
+        id: run_patch
         env:
           NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
           CLONE_PROTOCOL: https
@@ -57,3 +79,48 @@ jobs:
         run: |
           set -o pipefail
           ./scripts/generate-and-apply-patch.sh
+
+      - name: Save last published tag
+        if: success()
+        run: |
+          echo "${TAG}" > .last_published_tag
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add .last_published_tag
+          git commit -m "chore(ci): update last published tag to ${TAG}" || echo "No changes to commit"
+          git push origin HEAD:main || echo "Push failed; ensure GITHUB_TOKEN has repo permissions"
+
+      - name: Notify success via email
+        if: success()
+        uses: dawidd6/action-send-mail@v3
+        with:
+          server_address: ${{ secrets.SMTP_SERVER }}
+          server_port: ${{ secrets.SMTP_PORT }}
+          username: ${{ secrets.SMTP_USERNAME }}
+          password: ${{ secrets.SMTP_PASSWORD }}
+          subject: "Next.js patch published: ${{ env.TAG }}"
+          body: |
+            The automated patch run succeeded.
+            Published tag: ${{ env.TAG }}
+            Repository: ${{ github.repository }}
+            Commit: ${{ github.sha }}
+          to: ${{ secrets.NOTIFY_TO }}
+          from: ${{ secrets.NOTIFY_FROM }}
+
+      - name: Notify failure via email
+        if: failure()
+        uses: dawidd6/action-send-mail@v3
+        with:
+          server_address: ${{ secrets.SMTP_SERVER }}
+          server_port: ${{ secrets.SMTP_PORT }}
+          username: ${{ secrets.SMTP_USERNAME }}
+          password: ${{ secrets.SMTP_PASSWORD }}
+          subject: "Next.js patch FAILED: ${{ env.TAG }}"
+          body: |
+            The automated patch run failed.
+            Attempted tag: ${{ env.TAG }}
+            Repository: ${{ github.repository }}
+            Run: ${{ github.run_id }}
+            Check the Actions UI for details.
+          to: ${{ secrets.NOTIFY_TO }}
+          from: ${{ secrets.NOTIFY_FROM }}
