@@ -90,23 +90,6 @@ jobs:
           git commit -m "chore(ci): update last published tag to ${TAG}" || echo "No changes to commit"
           git push origin HEAD:main || echo "Push failed; ensure GITHUB_TOKEN has repo permissions"
 
-      - name: Notify success via email
-        if: success()
-        uses: dawidd6/action-send-mail@v3
-        with:
-          server_address: ${{ secrets.SMTP_SERVER }}
-          server_port: ${{ secrets.SMTP_PORT }}
-          username: ${{ secrets.SMTP_USERNAME }}
-          password: ${{ secrets.SMTP_PASSWORD }}
-          subject: "Next.js patch published: ${{ env.TAG }}"
-          body: |
-            The automated patch run succeeded.
-            Published tag: ${{ env.TAG }}
-            Repository: ${{ github.repository }}
-            Commit: ${{ github.sha }}
-          to: ${{ secrets.NOTIFY_TO }}
-          from: ${{ secrets.NOTIFY_FROM }}
-
       - name: Create GitHub Release
         if: success()
         uses: actions/create-release@v1
@@ -120,21 +103,3 @@ jobs:
           prerelease: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Notify failure via email
-        if: failure()
-        uses: dawidd6/action-send-mail@v3
-        with:
-          server_address: ${{ secrets.SMTP_SERVER }}
-          server_port: ${{ secrets.SMTP_PORT }}
-          username: ${{ secrets.SMTP_USERNAME }}
-          password: ${{ secrets.SMTP_PASSWORD }}
-          subject: "Next.js patch FAILED: ${{ env.TAG }}"
-          body: |
-            The automated patch run failed.
-            Attempted tag: ${{ env.TAG }}
-            Repository: ${{ github.repository }}
-            Run: ${{ github.run_id }}
-            Check the Actions UI for details.
-          to: ${{ secrets.NOTIFY_TO }}
-          from: ${{ secrets.NOTIFY_FROM }}
