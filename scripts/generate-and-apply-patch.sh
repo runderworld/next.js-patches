@@ -275,6 +275,9 @@ echo "🌐 Adding upstream remote..."
 git -C "$NEXTJS_REPO" remote get-url upstream >/dev/null 2>&1 || \
   git -C "$NEXTJS_REPO" remote add upstream https://github.com/vercel/next.js.git
 
+echo "🌐 Fetching upstream tag $TAG and canary ref..."
+git -C "$NEXTJS_REPO" fetch upstream "refs/tags/$TAG:refs/tags/$TAG" "+refs/heads/canary:refs/remotes/upstream/canary" --depth=1
+
 # Step 0: Verify both repos are clean
 check_clean() {
   local repo_path="$1"
