@@ -60,7 +60,7 @@ jobs:
           NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
           if [ -z "${NPM_TOKEN:-}" ]; then
-            echo "❌ NPM_TOKEN secret is not set."
+            echo "ERROR: NPM_TOKEN secret is not set."
             exit 1
           fi
           # write user-scoped npmrc for runner (do not commit)
