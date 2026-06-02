@@ -607,7 +607,7 @@ if [ "$DRY_RUN" = false ]; then
   "version": "${PUBLISH_VERSION}",
   "description": "Dist patch overlay for Next.js ${TAG} with ${SRC_PATCH_NAME%.patch}",
   "main": "dist.patch",
-  "files": ["dist.patch"],
+  "files": ["dist.patch", "README.md"],
   "keywords": ["next.js", "patch", "dist", "overlay", "enterprise"],
   "author": "runderworld",
   "license": "MIT",
@@ -615,6 +615,47 @@ if [ "$DRY_RUN" = false ]; then
     "access": "public"
   }
 }
+EOF
+
+  cat > "$PACKAGE_DIR/README.md" <<EOF
+# @runderworld/next.js-patches
+
+Dist-level patch overlay for **Next.js ${TAG}** — variant \`${SRC_PATCH_NAME%.patch}\`.
+
+This package is published automatically by the patch automation pipeline and contains a single \`dist.patch\` file that can be applied on top of a matching Next.js install.
+
+## Getting Started
+
+### Install
+
+\`\`\`bash
+npm install @runderworld/next.js-patches@${PUBLISH_VERSION}
+\`\`\`
+
+### Apply the patch
+
+\`\`\`bash
+patch -p1 -d node_modules/next < node_modules/@runderworld/next.js-patches/dist.patch
+\`\`\`
+
+> **Note:** This patch targets Next.js \`${TAG}\`. Make sure your installed version of \`next\` matches before applying.
+
+## What's included
+
+| File | Description |
+|------|-------------|
+| \`dist.patch\` | Unified diff of patched \`next/dist/\` output vs the upstream \`${TAG}\` release |
+
+## Variant
+
+- **Upstream tag:** \`${TAG}\`
+- **Patch name:** \`${SRC_PATCH_NAME%.patch}\`
+- **Package version:** \`${PUBLISH_VERSION}\`
+
+## Source
+
+Patch artifacts are generated and published from [runderworld/next.js-patches](https://github.com/runderworld/next.js-patches).
+All patches are fingerprinted, version-locked, and reproducible.
 EOF
 
   echo "🚀 Publishing to NPM..."
