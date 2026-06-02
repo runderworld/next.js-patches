@@ -80,6 +80,11 @@ jobs:
           npm whoami
           npm ping
 
+      - name: Configure git identity
+        run: |
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git config --global user.name "github-actions[bot]"
+
       - name: Make script executable
         run: chmod +x ./scripts/generate-and-apply-patch.sh
 

@@ -328,6 +328,14 @@ echo "📍 Creating patch-stack branch from upstream/canary"
 git branch -D patch-stack 2>/dev/null || true
 git checkout -b patch-stack "$TAG"
 
+# Ensure a git identity is available for cherry-pick commits (required in CI)
+if ! git config user.email >/dev/null 2>&1; then
+  git config user.email "github-actions[bot]@users.noreply.github.com"
+fi
+if ! git config user.name >/dev/null 2>&1; then
+  git config user.name "github-actions[bot]"
+fi
+
 echo "🧵 Cherry-picking commits into patch-stack..."
 for commit in "${PR_COMMITS[@]}"; do
   if ! git cherry-pick "$commit"; then
