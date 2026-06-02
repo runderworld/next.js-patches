@@ -55,6 +55,14 @@ jobs:
             exit 0
           fi
 
+      - name: Debug secrets access
+        run: |
+          echo "NPM_TOKEN is set: $([[ -n "$NPM_TOKEN" ]] && echo 'YES' || echo 'NO')"
+          echo "GITHUB_TOKEN is set: $([[ -n "$GITHUB_TOKEN" ]] && echo 'YES' || echo 'NO')"
+        env:
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
       - name: "Preflight: configure npm auth and verify identity"
         env:
           NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
