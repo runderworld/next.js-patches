@@ -55,10 +55,13 @@ jobs:
           echo "Last published TAG: ${LAST_TAG}"
           if [ "${TAG}" = "${LAST_TAG}" ]; then
             echo "No new tag detected; skipping patch generation."
-            exit 0
+            echo "should_skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "should_skip=false" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Debug secrets access
+        if: steps.skip_check.outputs.should_skip != 'true'
         run: |
           echo "NPM_TOKEN is set: $([[ -n "$NPM_TOKEN" ]] && echo 'YES' || echo 'NO')"
           echo "GITHUB_TOKEN is set: $([[ -n "$GITHUB_TOKEN" ]] && echo 'YES' || echo 'NO')"
@@ -67,6 +70,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: "Preflight: configure npm auth and verify identity"
+        if: steps.skip_check.outputs.should_skip != 'true'
         env:
           NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
@@ -81,14 +85,17 @@ jobs:
           npm ping
 
       - name: Configure git identity
+        if: steps.skip_check.outputs.should_skip != 'true'
         run: |
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
           git config --global user.name "github-actions[bot]"
 
       - name: Make script executable
+        if: steps.skip_check.outputs.should_skip != 'true'
         run: chmod +x ./scripts/generate-and-apply-patch.sh
 
       - name: Run generate-and-apply-patch script
+        if: steps.skip_check.outputs.should_skip != 'true'
         id: run_patch
         env:
           NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
@@ -100,7 +107,7 @@ jobs:
           ./scripts/generate-and-apply-patch.sh
 
       - name: Save last published tag
-        if: success()
+        if: steps.skip_check.outputs.should_skip != 'true' && success()
         run: |
           echo "${TAG}" > .last_published_tag
           git config user.name "github-actions[bot]"
@@ -110,7 +117,7 @@ jobs:
           git push origin HEAD:main || echo "Push failed; ensure GITHUB_TOKEN has repo permissions"
 
       - name: Create GitHub Release
-        if: success()
+        if: steps.skip_check.outputs.should_skip != 'true' && success()
         uses: actions/create-release@v1
         with:
           tag_name: ${{ env.TAG }}
