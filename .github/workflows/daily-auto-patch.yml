@@ -104,8 +104,21 @@ jobs:
         if: steps.skip_check.outputs.should_skip != 'true'
         run: chmod +x ./scripts/generate-and-apply-patch.sh
 
-      - name: Run generate-and-apply-patch script
+      - name: Check if npm version already published
         if: steps.skip_check.outputs.should_skip != 'true'
+        id: npm_check
+        run: |
+          VERSION="${TAG#v}"
+          if npm view "@runderworld/next.js-patches@${VERSION}" version 2>/dev/null | grep -q "${VERSION}"; then
+            echo "Version ${VERSION} already exists on npm; skipping script and saving tag."
+            echo "already_published=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "Version ${VERSION} not yet on npm; proceeding."
+            echo "already_published=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Run generate-and-apply-patch script
+        if: steps.skip_check.outputs.should_skip != 'true' && steps.npm_check.outputs.already_published != 'true'
         id: run_patch
         env:
           NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
@@ -117,14 +130,22 @@ jobs:
           ./scripts/generate-and-apply-patch.sh
 
       - name: Save last published tag
-        if: steps.skip_check.outputs.should_skip != 'true' && success()
+        if: steps.skip_check.outputs.should_skip != 'true' && (success() || steps.npm_check.outputs.already_published == 'true')
         run: |
           echo "${TAG}" > .last_published_tag_${{ matrix.channel.dist_tag }}
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add .last_published_tag_${{ matrix.channel.dist_tag }}
-          git commit -m "chore(ci): update last published tag (${{ matrix.channel.dist_tag }}) to ${TAG}" || echo "No changes to commit"
-          git push origin HEAD:main || echo "Push failed; ensure GITHUB_TOKEN has repo permissions"
+          git diff --cached --quiet && echo "No changes to commit" && exit 0
+          git commit -m "chore(ci): update last published tag (${{ matrix.channel.dist_tag }}) to ${TAG}"
+          # Retry push up to 3 times with pull --rebase to handle concurrent matrix job pushes
+          for attempt in 1 2 3; do
+            git pull --rebase origin main
+            git push origin HEAD:main && break || {
+              echo "Push attempt ${attempt} failed; retrying..."
+              sleep $((attempt * 3))
+            }
+          done
 
       - name: Create GitHub Release
         if: steps.skip_check.outputs.should_skip != 'true' && success()
