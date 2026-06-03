@@ -12,6 +12,16 @@ permissions:
 jobs:
   generate-and-publish:
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        channel:
+          - dist_tag: latest
+            fallback: '16.2.7'
+          - dist_tag: canary
+            fallback: '16.3.0-canary.38'
+          - dist_tag: backport
+            fallback: '15.5.19'
     env:
       # Ensure we run in CI-mode inside the script
       CI: true
@@ -28,10 +38,10 @@ jobs:
       - name: Install pnpm
         run: npm install -g pnpm
 
-      - name: Resolve upstream tag (canary)
+      - name: Resolve upstream tag (${{ matrix.channel.dist_tag }})
         id: resolve_tag
         run: |
-          TAG=$(npm info next dist-tags.canary 2>/dev/null || echo '16.2.0-canary.42')
+          TAG=$(npm info next dist-tags.${{ matrix.channel.dist_tag }} 2>/dev/null || echo '${{ matrix.channel.fallback }}')
           # Normalize to start with 'v'
           TAG="v${TAG#v}"
           echo "Resolved TAG=$TAG"
@@ -40,7 +50,7 @@ jobs:
       - name: Load last published tag
         id: load_last
         run: |
-          LAST_FILE=".last_published_tag"
+          LAST_FILE=".last_published_tag_${{ matrix.channel.dist_tag }}"
           if [ -f "$LAST_FILE" ]; then
             LAST_TAG=$(cat "$LAST_FILE" | tr -d '\n' || true)
           else
@@ -109,11 +119,11 @@ jobs:
       - name: Save last published tag
         if: steps.skip_check.outputs.should_skip != 'true' && success()
         run: |
-          echo "${TAG}" > .last_published_tag
+          echo "${TAG}" > .last_published_tag_${{ matrix.channel.dist_tag }}
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add .last_published_tag
-          git commit -m "chore(ci): update last published tag to ${TAG}" || echo "No changes to commit"
+          git add .last_published_tag_${{ matrix.channel.dist_tag }}
+          git commit -m "chore(ci): update last published tag (${{ matrix.channel.dist_tag }}) to ${TAG}" || echo "No changes to commit"
           git push origin HEAD:main || echo "Push failed; ensure GITHUB_TOKEN has repo permissions"
 
       - name: Create GitHub Release
@@ -121,9 +131,9 @@ jobs:
         uses: actions/create-release@v1
         with:
           tag_name: ${{ env.TAG }}
-          release_name: "Automated patch ${{ env.TAG }}"
+          release_name: "Automated patch ${{ env.TAG }} (${{ matrix.channel.dist_tag }})"
           body: |
-            Automated patch generated for Next.js tag ${{ env.TAG }}.
+            Automated patch generated for Next.js ${{ matrix.channel.dist_tag }} tag ${{ env.TAG }}.
             The patches and dist artifacts are available in the repository under the `patches/` directory.
           draft: false
           prerelease: false
