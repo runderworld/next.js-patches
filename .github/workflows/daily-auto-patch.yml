@@ -147,8 +147,22 @@ jobs:
             }
           done
 
+      - name: Job summary
+        if: always()
+        run: |
+          if [ "${{ steps.skip_check.outputs.should_skip }}" = "true" ]; then
+            echo "## ⏭️ Skipped — tag unchanged" >> "$GITHUB_STEP_SUMMARY"
+            echo "Channel \`${{ matrix.channel.dist_tag }}\`: last published tag matches current upstream tag. No action taken." >> "$GITHUB_STEP_SUMMARY"
+          elif [ "${{ steps.npm_check.outputs.already_published }}" = "true" ]; then
+            echo "## ⏭️ Skipped — already published" >> "$GITHUB_STEP_SUMMARY"
+            echo "Channel \`${{ matrix.channel.dist_tag }}\`: \`@runderworld/next.js-patches@${TAG#v}\` already exists on npm. No action taken." >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "## ✅ Patch published" >> "$GITHUB_STEP_SUMMARY"
+            echo "Channel \`${{ matrix.channel.dist_tag }}\`: published \`@runderworld/next.js-patches@${TAG#v}\`." >> "$GITHUB_STEP_SUMMARY"
+          fi
+
       - name: Create GitHub Release
-        if: steps.skip_check.outputs.should_skip != 'true' && success()
+        if: steps.skip_check.outputs.should_skip != 'true' && steps.npm_check.outputs.already_published != 'true' && success()
         uses: actions/create-release@v1
         with:
           tag_name: ${{ env.TAG }}
