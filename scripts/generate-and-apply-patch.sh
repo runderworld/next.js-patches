@@ -496,12 +496,12 @@ if ! git commit -q -m "patched dist files"; then
 fi
 
 # Step 4(e): Run forked patch-package@8 to generate patch in v8 format
-if ! npx @unts/patch-package@^8 next --patch-dir "../patches"; then
+npx --yes @unts/patch-package@^8 next --patch-dir "../patches" || {
   echo "🛑 @unts/patch-package v8 failed"
   popd > /dev/null
   rm -rf "$PATCH_TEMP"
   exit 1
-fi
+}
 
 # Step 4(f): Cleanup
 popd > /dev/null
