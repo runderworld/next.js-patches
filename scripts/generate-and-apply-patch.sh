@@ -669,8 +669,36 @@ EOF
   echo "🚀 Publishing to NPM..."
   pushd "$PACKAGE_DIR" > /dev/null
 
-  if ! npm publish --access public; then
-    echo "🛑 NPM publish failed." >&2
+  # Retry loop: npm can return E409 "Failed to save packument" when concurrent
+  # matrix jobs publish to the same package simultaneously.  Retry with
+  # exponential backoff and, after each failure, check whether the version
+  # already landed on npm (meaning a sibling job beat us to it).
+  npm_publish_ok=false
+  retry_wait=15
+  max_attempts=4
+  for attempt in $(seq 1 "$max_attempts"); do
+    if npm publish --access public; then
+      npm_publish_ok=true
+      break
+    fi
+    # Version may have been published by a concurrent job; treat as success.
+    # `[.] | flatten` normalises both a single-string and an array response
+    # from `npm view ... versions --json` into a flat array for uniform checking.
+    if npm view "@runderworld/next.js-patches" versions --json 2>/dev/null \
+        | jq -er --arg v "${PUBLISH_VERSION}" '[.] | flatten | any(. == $v)' >/dev/null; then
+      echo "ℹ️ Version ${PUBLISH_VERSION} is already on npm — treating as success."
+      npm_publish_ok=true
+      break
+    fi
+    if [ "$attempt" -lt "$max_attempts" ]; then
+      echo "⚠️ npm publish failed (attempt ${attempt}/${max_attempts}). Retrying in ${retry_wait}s..."
+      sleep "$retry_wait"
+      retry_wait=$(( retry_wait * 2 ))
+    fi
+  done
+
+  if [ "$npm_publish_ok" != "true" ]; then
+    echo "🛑 NPM publish failed after ${max_attempts} attempts." >&2
     echo "   (The dist patch is saved at: $DIST_PATCH_PATH)"
     popd > /dev/null
     cleanup_on_failure full

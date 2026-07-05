@@ -110,7 +110,10 @@ jobs:
         id: npm_check
         run: |
           VERSION="${TAG#v}"
-          if npm view "@runderworld/next.js-patches@${VERSION}" version 2>/dev/null | grep -q "${VERSION}"; then
+          # `[.] | flatten` normalises both a single-string and an array response
+          # from `npm view ... versions --json` into a flat array for uniform checking.
+          if npm view "@runderworld/next.js-patches" versions --json 2>/dev/null \
+              | jq -er --arg v "$VERSION" '[.] | flatten | any(. == $v)' >/dev/null; then
             echo "Version ${VERSION} already exists on npm; skipping script and saving tag."
             echo "already_published=true" >> "$GITHUB_OUTPUT"
           else
