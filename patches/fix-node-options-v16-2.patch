@@ -1,4 +1,4 @@
-From 2289b440ada67df823a5f026f2d69efbc0e94e2a Mon Sep 17 00:00:00 2001
+From 6f8eb742bc355badf0b3af5cc5564a6e89bdcae3 Mon Sep 17 00:00:00 2001
 From: Ryan Underwood <runderworld@gmail.com>
 Date: Tue, 14 Apr 2026 18:59:36 -0700
 Subject: [PATCH 1/2] fix: correct parseNodeArgs and formatNodeOptions
@@ -35,10 +35,10 @@ Changes:
  4 files changed, 227 insertions(+), 110 deletions(-)
 
 diff --git a/packages/next/src/cli/next-dev.ts b/packages/next/src/cli/next-dev.ts
-index b268e7af60..ae745d9e7a 100644
+index aa8fdb2cb89..57dc38cdf2b 100644
 --- a/packages/next/src/cli/next-dev.ts
 +++ b/packages/next/src/cli/next-dev.ts
-@@ -287,34 +287,34 @@ const nextDev = async (
+@@ -359,34 +359,34 @@ const nextDev = async (
          const totalMemInMB = Math.floor(totalMem / 1024 / 1024)
          maxOldSpaceSize = Math.floor(totalMemInMB * 0.5).toString()
  
@@ -84,7 +84,7 @@ index b268e7af60..ae745d9e7a 100644
  
        const { nodeOptions: formattedNodeOptions, execArgv } =
 diff --git a/packages/next/src/lib/worker.ts b/packages/next/src/lib/worker.ts
-index 9a0ade8247..b4c0a67734 100644
+index 9a0ade82476..b4c0a67734c 100644
 --- a/packages/next/src/lib/worker.ts
 +++ b/packages/next/src/lib/worker.ts
 @@ -88,15 +88,15 @@ export class Worker {
@@ -131,7 +131,7 @@ index 9a0ade8247..b4c0a67734 100644
  
      const { nodeOptions: formattedNodeOptions, execArgv } =
 diff --git a/packages/next/src/server/lib/utils.test.ts b/packages/next/src/server/lib/utils.test.ts
-index f045c711ef..80403ceab1 100644
+index f045c711ef8..80403ceab13 100644
 --- a/packages/next/src/server/lib/utils.test.ts
 +++ b/packages/next/src/server/lib/utils.test.ts
 @@ -4,6 +4,7 @@ import {
@@ -243,7 +243,7 @@ index f045c711ef..80403ceab1 100644
    })
  })
 diff --git a/packages/next/src/server/lib/utils.ts b/packages/next/src/server/lib/utils.ts
-index 3bc94b9d7d..76f47a3e55 100644
+index 3bc94b9d7d7..76f47a3e55e 100644
 --- a/packages/next/src/server/lib/utils.ts
 +++ b/packages/next/src/server/lib/utils.ts
 @@ -11,51 +11,132 @@ export function printAndExit(message: string, code = 1) {
@@ -565,10 +565,10 @@ index 3bc94b9d7d..76f47a3e55 100644
  
    return parseInt(size, 10)
 -- 
-2.32.0 (Apple Git-132)
+2.54.0
 
 
-From 07f85fddc93cb5c49fe46a00e87609e988cfbd21 Mon Sep 17 00:00:00 2001
+From b2d98ddc62053b3026bdabca3ac4c4ffc094d05b Mon Sep 17 00:00:00 2001
 From: Ryan Underwood <runderworld@gmail.com>
 Date: Tue, 14 Apr 2026 19:00:48 -0700
 Subject: [PATCH 2/2] chore: add build-time fingerprint for patch verification
@@ -578,7 +578,7 @@ Subject: [PATCH 2/2] chore: add build-time fingerprint for patch verification
  1 file changed, 6 insertions(+)
 
 diff --git a/packages/next/src/server/lib/utils.ts b/packages/next/src/server/lib/utils.ts
-index 76f47a3e55..50ae6591f8 100644
+index 76f47a3e55e..50ae6591f81 100644
 --- a/packages/next/src/server/lib/utils.ts
 +++ b/packages/next/src/server/lib/utils.ts
 @@ -97,6 +97,12 @@ export class NodeOptions {
@@ -595,5 +595,5 @@ index 76f47a3e55..50ae6591f8 100644
    const { tokens } = parseArgs({ args, strict: false, tokens: true })
  
 -- 
-2.32.0 (Apple Git-132)
+2.54.0
 
