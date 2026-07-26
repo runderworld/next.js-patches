@@ -1,7 +1,7 @@
-From a75f144f03d251d479f91c5ba135827ce60c3fbb Mon Sep 17 00:00:00 2001
+From f0076b8dfc7426880a686929b5b748626bf33906 Mon Sep 17 00:00:00 2001
 From: Martin Madsen <mj@factbird.com>
 Date: Wed, 23 Oct 2024 23:24:01 +0200
-Subject: [PATCH 1/3] Account for positional option values and support repeated
+Subject: [PATCH 1/4] Account for positional option values and support repeated
  options in NODE_OPTIONS processing
 
 ---
@@ -201,13 +201,13 @@ index 82e8808deaa..9d0c4c0b620 100644
    return parsed
  }
 -- 
-2.32.0 (Apple Git-132)
+2.54.0
 
 
-From c8007be0c7b7fb7aca47973c10426dd4552fb5ac Mon Sep 17 00:00:00 2001
+From 8ae5ea52f934facd94fdcee201465ce767cd6319 Mon Sep 17 00:00:00 2001
 From: Martin Madsen <mj@factbird.com>
 Date: Wed, 23 Oct 2024 23:33:37 +0200
-Subject: [PATCH 2/3] Safely extract the first inspect value
+Subject: [PATCH 2/4] Safely extract the first inspect value
 
 ---
  packages/next/src/server/lib/utils.ts | 11 ++++++-----
@@ -243,25 +243,29 @@ index 9d0c4c0b620..882bcb5ca62 100644
  
  /**
 -- 
-2.32.0 (Apple Git-132)
+2.54.0
 
 
-From 99a20188441a8a7a4e9f295dfb9a843f1bd37ea8 Mon Sep 17 00:00:00 2001
+From 0d668a6f7b4829fb8fe759a92b04f020787b8fed Mon Sep 17 00:00:00 2001
 From: Ryan Underwood <runderworld@gmail.com>
-Date: Wed, 23 Jul 2025 17:50:51 -0700
-Subject: [PATCH 3/3] Additional work needed.
+Date: Tue, 14 Apr 2026 19:52:37 -0700
+Subject: [PATCH 3/4] fix: wrap node option assignments in arrays for
+ compatibility with parseNodeArgs
 
+Wrap values assigned to nodeOptions in next-dev.ts and worker.ts as
+single-element arrays to match the Array<string | boolean> type returned
+by parseNodeArgs. Fixes formatNodeOptions producing malformed output
+when options are set as bare values instead of arrays.
 ---
- packages/next/src/cli/next-dev.ts     | 6 +++---
- packages/next/src/lib/worker.ts       | 4 ++--
- packages/next/src/server/lib/utils.ts | 3 +++
- 3 files changed, 8 insertions(+), 5 deletions(-)
+ packages/next/src/cli/next-dev.ts | 6 +++---
+ packages/next/src/lib/worker.ts   | 4 ++--
+ 2 files changed, 5 insertions(+), 5 deletions(-)
 
 diff --git a/packages/next/src/cli/next-dev.ts b/packages/next/src/cli/next-dev.ts
-index e36a6975ce3..35d15907e85 100644
+index 442e1ed5fa3..8603a21988c 100644
 --- a/packages/next/src/cli/next-dev.ts
 +++ b/packages/next/src/cli/next-dev.ts
-@@ -262,7 +262,7 @@ const nextDev = async (
+@@ -267,7 +267,7 @@ const nextDev = async (
          const totalMemInMB = Math.floor(totalMem / 1024 / 1024)
          maxOldSpaceSize = Math.floor(totalMemInMB * 0.5).toString()
  
@@ -270,7 +274,7 @@ index e36a6975ce3..35d15907e85 100644
  
          // Ensure the max_old_space_size is not also set.
          delete nodeOptions['max_old_space_size']
-@@ -271,13 +271,13 @@ const nextDev = async (
+@@ -276,13 +276,13 @@ const nextDev = async (
        if (options.disableSourceMaps) {
          delete nodeOptions['enable-source-maps']
        } else {
@@ -305,20 +309,36 @@ index c86784fb951..bf8b6e37957 100644
      }
  
      if (isolatedMemory) {
+-- 
+2.54.0
+
+
+From 0423a6cadcf9dac2a77b575b53eb1aa6823f69c6 Mon Sep 17 00:00:00 2001
+From: Ryan Underwood <runderworld@gmail.com>
+Date: Tue, 14 Apr 2026 19:53:05 -0700
+Subject: [PATCH 4/4] chore: add build-time fingerprint for patch verification
+
+---
+ packages/next/src/server/lib/utils.ts | 6 ++++++
+ 1 file changed, 6 insertions(+)
+
 diff --git a/packages/next/src/server/lib/utils.ts b/packages/next/src/server/lib/utils.ts
-index 882bcb5ca62..4e788947ffa 100644
+index 882bcb5ca62..c534634e826 100644
 --- a/packages/next/src/server/lib/utils.ts
 +++ b/packages/next/src/server/lib/utils.ts
-@@ -243,6 +243,9 @@ export function getFormattedNodeOptionsWithoutInspect() {
- 
+@@ -244,6 +244,12 @@ export function getFormattedNodeOptionsWithoutInspect() {
    return formatNodeOptions(args)
  }
-+enum PatchFlags {
-+  RunderworldNodeOptions = 'runderworld.node.options.patch'
-+}
  
++/** @internal Build-time fingerprint for patch verification. */
++// eslint-disable-next-line @typescript-eslint/no-unused-vars
++enum PatchFlags {
++  RunderworldNodeOptions = 'runderworld.node.options.patch',
++}
++
  /**
   * Check if the value is a valid positive integer and parse it. If it's not, it will throw an error.
+  *
 -- 
-2.32.0 (Apple Git-132)
+2.54.0
 
